@@ -1,0 +1,13 @@
+#
+# Flownative OAuth Client Routes
+#
+
+-
+  name: 'OAuth Client Example Endpoint'
+  uriPattern: 'example/oauth2/{@action}'
+  defaults:
+    '@package':    'Flownative.OAuth2.Client'
+    '@controller': 'OAuth'
+    '@format':     'json'
+    'clientServiceClassName': 'Acme\MyService\MyConcreteOAuthClient'
+  appendExceedingArguments: true

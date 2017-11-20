@@ -1,0 +1,30 @@
+#
+# Security policy for Flownative.OAuth2.Client
+#
+
+privilegeTargets:
+
+  'Neos\Flow\Security\Authorization\Privilege\Method\MethodPrivilege':
+
+    'Flownative.OAuth2.Client:OAuth':
+      matcher: 'method(Flownative\OAuth2\Client\Controller\OAuthController->(finishAuthorization)Action())'
+
+    'Flownative.OAuth2.Client:OAuth.Admin':
+      matcher: 'method(Flownative\OAuth2\Client\Controller\OAuthController->(startAuthorization|refreshAuthorization)Action())'
+
+#
+# ROLES
+#
+roles:
+
+  'Neos.Flow:Everybody':
+    privileges:
+      -
+        privilegeTarget: 'Flownative.OAuth2.Client:OAuth'
+        permission: GRANT
+
+#  'Acme.Your.Application':
+#    privileges:
+#      -
+#        privilegeTarget: 'Flownative.OAuth2.Client:OAuth.Admin'
+#        permission: GRANT

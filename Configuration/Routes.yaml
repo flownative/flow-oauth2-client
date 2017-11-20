@@ -1,0 +1,11 @@
+#
+# Flownative OAuth Client Routes
+#
+
+-
+  name: 'Flownative OAuth Client: start authorization'
+  uriPattern: 'oauth2/{serviceName}/{@action}'
+  defaults:
+    '@package':    'Flownative.OAuth2.Client'
+    '@controller': 'OAuth'
+  appendExceedingArguments: true
