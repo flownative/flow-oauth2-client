@@ -26,15 +26,23 @@ class OAuthToken
     /**
      * @var string
      */
+    public $grantType;
+
+    /**
+     * @var string
+     * @ORM\Column(nullable = true, length=5000)
+     */
     public $clientSecret;
 
     /**
      * @var string
+     * @ORM\Column(length=5000)
      */
     public $accessToken;
 
     /**
      * @var string
+     * @ORM\Column(nullable = true, length=5000)
      */
     public $refreshToken;
 

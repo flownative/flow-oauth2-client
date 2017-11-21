@@ -140,6 +140,41 @@ abstract class OAuthClient
     }
 
     /**
+     * Add credentials for a Client Credentials Grant
+     *
+     * @param string $clientId
+     * @param string $clientSecret
+     * @param string $scope
+     * @throws IdentityProviderException
+     */
+    public function addClientCredentials(string $clientId, string $clientSecret, string $scope = '')
+    {
+        $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
+
+        try {
+            $this->logger->log(sprintf(static::getServiceName() . 'Setting client credentials for client "%s" using a %s bytes long secret.', $clientId, strlen($clientSecret)), LOG_INFO);
+
+            $oldOAuthToken = $this->getOAuthToken();
+            if ($oldOAuthToken !== null) {
+                $this->entityManager->remove($oldOAuthToken);
+                $this->entityManager->flush();
+
+                $this->logger->log(sprintf(static::getServiceName() . 'Removed old OAuth token for client "%s".', $clientId), LOG_INFO);
+            }
+
+            $accessToken = $oAuthProvider->getAccessToken('client_credentials');
+            $oAuthToken = $this->createNewOAuthToken($clientId, $clientSecret, 'client_credentials', $accessToken, $scope);
+
+            $this->logger->log(sprintf(static::getServiceName() . 'Persisted new OAuth token for client "%s" with expiry time %s.', $clientId, $accessToken->getExpires()), LOG_INFO);
+
+            $this->entityManager->persist($oAuthToken);
+            $this->entityManager->flush();
+        } catch (IdentityProviderException $e) {
+            throw $e;
+        }
+    }
+
+    /**
      * Start OAuth authorization
      *
      * @param string $clientId The client id, as provided by the OAuth server
@@ -202,7 +237,7 @@ abstract class OAuthClient
             }
 
             $accessToken = $oAuthProvider->getAccessToken('authorization_code', ['code' => $code]);
-            $oAuthToken = $this->createNewOAuthToken($clientId, $clientSecret, $accessToken, $scope);
+            $oAuthToken = $this->createNewOAuthToken($clientId, $clientSecret, 'authorization_code', $accessToken, $scope);
 
             $this->logger->log(sprintf(static::getServiceName() . ': Persisted new OAuth token for client "%s" with expiry time %s.', $clientId, $accessToken->getExpires()), LOG_INFO);
 
@@ -280,6 +315,32 @@ abstract class OAuthClient
             $oAuthToken = $this->getOAuthToken();
         }
         $oAuthProvider = $this->createOAuthProvider($oAuthToken->clientId, $oAuthToken->clientSecret);
+
+        if ($oAuthToken->expires < new \DateTimeImmutable()) {
+            switch($oAuthToken->grantType) {
+                case 'authorization_code':
+                    $this->refreshAuthorization($oAuthToken->clientId, '');
+                    $oAuthToken = $this->getOAuthToken();
+                break;
+                case 'client_credentials':
+                    try {
+                        $newAccessToken = $oAuthProvider->getAccessToken('client_credentials');
+                    } catch(IdentityProviderException $exception) {
+                        $this->logger->log(sprintf(static::getServiceName() . 'Failed retrieving new OAuth access token for client "%s" (client credentials grant): %s', $oAuthToken->clientId, $exception->getMessage()), LOG_ERR);
+                        throw $exception;
+                    }
+
+                    $oAuthToken->accessToken = $newAccessToken->getToken();
+                    $oAuthToken->expires = ($newAccessToken->getExpires() ? \DateTimeImmutable::createFromFormat('U', $newAccessToken->getExpires()) : null);
+
+                    $this->logger->log(sprintf(static::getServiceName() . 'Persisted new OAuth token for client "%s" with expiry time %s.', $oAuthToken->clientId, $newAccessToken->getExpires()), LOG_INFO);
+
+                    $this->entityManager->persist($oAuthToken);
+                    $this->entityManager->flush();
+                break;
+            }
+        }
+
         $body = ($bodyFields !== [] ? \GuzzleHttp\json_encode($bodyFields) : '');
 
         return $oAuthProvider->getAuthenticatedRequest(
@@ -336,15 +397,17 @@ abstract class OAuthClient
      *
      * @param string $clientId
      * @param string $clientSecret
+     * @param string $grantType
      * @param AccessToken $accessToken
      * @param string $scope
      * @return OAuthToken
      */
-    protected function createNewOAuthToken(string $clientId, string $clientSecret, AccessToken $accessToken, string $scope): OAuthToken
+    protected function createNewOAuthToken(string $clientId, string $clientSecret, string $grantType, AccessToken $accessToken, string $scope): OAuthToken
     {
         $oAuthToken = new OAuthToken();
         $oAuthToken->clientId = $clientId;
         $oAuthToken->serviceName = static::getServiceName();
+        $oAuthToken->grantType = $grantType;
         $oAuthToken->clientSecret = $clientSecret;
         $oAuthToken->accessToken = $accessToken->getToken();
         $oAuthToken->refreshToken = $accessToken->getRefreshToken();
