@@ -24,13 +24,13 @@ final class OAuthController extends ActionController
     /**
      * Start OAuth2 authorization
      *
-     * @param string $consumerKey
-     * @param string $consumerSecret
+     * @param string $clientId
+     * @param string $clientSecret
      * @param string $returnToUri
      * @param string $serviceName
      * @throws OAuthClientException
      */
-    public function startAuthorizationAction(string $consumerKey, string $consumerSecret, string $returnToUri, string $serviceName)
+    public function startAuthorizationAction(string $clientId, string $clientSecret, string $returnToUri, string $serviceName)
     {
         if (!isset($this->services[$serviceName])) {
             throw new OAuthClientException('Unknown client service.', 1511187873921);
@@ -38,7 +38,7 @@ final class OAuthController extends ActionController
 
         /** @var $client OAuthClient **/
         $client = new $this->services[$serviceName];
-        $authorizeUri = $client->startAuthorization($consumerKey, $consumerSecret, $returnToUri);
+        $authorizeUri = $client->startAuthorization($clientId, $clientSecret, $returnToUri);
         $this->redirectToUri($authorizeUri);
     }
 
@@ -48,9 +48,10 @@ final class OAuthController extends ActionController
      * @param string $code
      * @param string $state
      * @param string $serviceName
+     * @param string $scope
      * @throws OAuthClientException
      */
-    public function finishAuthorizationAction(string $code, string $state, string $serviceName)
+    public function finishAuthorizationAction(string $code, string $state, string $serviceName, string $scope = '')
     {
         if (!isset($this->services[$serviceName])) {
             throw new OAuthClientException('Unknown client service.', 1511193117184);
@@ -58,19 +59,19 @@ final class OAuthController extends ActionController
 
         /** @var $client OAuthClient **/
         $client = new $this->services[$serviceName];
-        $returnToUri = $client->finishAuthorization($code, $state);
+        $returnToUri = $client->finishAuthorization($code, $state, $scope);
         $this->redirectToUri($returnToUri);
     }
 
     /**
      * Refresh OAuth2 authorization
      *
-     * @param string $consumerKey
+     * @param string $clientId
      * @param string $returnToUri
      * @param string $serviceName
      * @throws OAuthClientException
      */
-    public function refreshAuthorizationAction(string $consumerKey, string $returnToUri, string $serviceName)
+    public function refreshAuthorizationAction(string $clientId, string $returnToUri, string $serviceName)
     {
         if (!isset($this->services[$serviceName])) {
             throw new OAuthClientException('Unknown client service.', 1511193121713);
@@ -78,7 +79,7 @@ final class OAuthController extends ActionController
 
         /** @var $client OAuthClient **/
         $client = new $this->services[$serviceName];
-        $authorizeUri = $client->refreshAuthorization($consumerKey, $returnToUri);
+        $authorizeUri = $client->refreshAuthorization($clientId, $returnToUri);
         $this->redirectToUri($authorizeUri);
     }
 
@@ -98,8 +99,10 @@ final class OAuthController extends ActionController
             if ($reflectionService->isClassAbstract($serviceClassName)) {
                 continue;
             }
-            $services[call_user_func_array([$serviceClassName, 'getServiceName'], [])] = $serviceClassName;
+            $serviceName = call_user_func_array([$serviceClassName, 'getServiceName'], []);
+            $services[$serviceName] = $serviceClassName;
         }
+
         return $services;
     }
 }

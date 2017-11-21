@@ -8,6 +8,8 @@ use GuzzleHttp\Client;
 use GuzzleHttp\Psr7\Response;
 use League\OAuth2\Client\Provider\Exception\IdentityProviderException;
 use League\OAuth2\Client\Provider\GenericProvider;
+use League\OAuth2\Client\Token\AccessToken;
+use League\OAuth2\Client\Tool\RequestFactory;
 use Neos\Flow\Annotations as Flow;
 use Neos\Flow\Core\Bootstrap;
 use Neos\Flow\Http\HttpRequestHandlerInterface;
@@ -21,24 +23,6 @@ use Neos\Flow\Session\SessionInterface;
 
 abstract class OAuthClient
 {
-    /**
-     * The OAuth2 client id
-     *
-     * @var string
-     */
-    private $clientId;
-
-    /**
-     * The service base URI
-     * @var string
-     */
-    private $baseUri;
-
-    /**
-     * @var GenericProvider
-     */
-    private $oAuthProvider;
-
     /**
      * @Flow\Inject
      * @var UriBuilder
@@ -55,7 +39,7 @@ abstract class OAuthClient
      * @Flow\InjectConfiguration(path="http.baseUri", package="Neos.Flow")
      * @var string
      */
-    protected $baseUriSetting;
+    protected $flowBaseUriSetting;
 
     /**
      * @var Client
@@ -102,6 +86,12 @@ abstract class OAuthClient
      */
     abstract public function getBaseUri(): string;
 
+    /**
+     * Returns the current client id (for sending authenticated requests)
+     *
+     * @return string The client id which is known by the OAuth2 server
+     */
+    abstract public function getClientId(): string;
 
     /**
      * Returns the OAuth service endpoint for the access token.
@@ -137,6 +127,19 @@ abstract class OAuthClient
     }
 
     /**
+     * Returns a factory for requests used by this OAuth client.
+     *
+     * You may override this method an provide a custom request factory, for example for adding
+     * additional headers (e.g. User-Agent) to every request.
+     *
+     * @return RequestFactory
+     */
+    public function getRequestFactory(): RequestFactory
+    {
+        return new RequestFactory();
+    }
+
+    /**
      * Start OAuth authorization
      *
      * @param string $clientId The client id, as provided by the OAuth server
@@ -146,16 +149,8 @@ abstract class OAuthClient
      */
     public function startAuthorization(string $clientId, string $clientSecret, string $returnToUri)
     {
-        $this->oAuthProvider = new GenericProvider([
-            'clientId' => $clientId,
-            'clientSecret' => $clientSecret,
-            'redirectUri' => $this->renderRedirectUri(),
-            'urlAuthorize' => $this->getAuthorizeTokenUri(),
-            'urlAccessToken' => $this->getAccessTokenUri(),
-            'urlResourceOwnerDetails' => $this->getResourceOwnerUri()
-        ]);
-
-        $authorizationUri = $this->oAuthProvider->getAuthorizationUrl();
+        $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
+        $authorizationUri = $oAuthProvider->getAuthorizationUrl();
 
         $this->logger->log(sprintf(static::getServiceName() . ': Starting authorization for client "%s" using a %s bytes long secret, returning to "%s".', $clientId, strlen($clientSecret), $returnToUri), LOG_INFO);
 
@@ -169,8 +164,9 @@ abstract class OAuthClient
 
         $this->session->putData(static::getServiceName() . '.oAuthClientId', $clientId);
         $this->session->putData(static::getServiceName() . '.oAuthClientSecret', $clientSecret);
-        $this->session->putData(static::getServiceName() . '.oAuthState', $this->oAuthProvider->getState());
+        $this->session->putData(static::getServiceName() . '.oAuthState', $oAuthProvider->getState());
         $this->session->putData(static::getServiceName() . '.returnToUri', $returnToUri);
+
         return $authorizationUri;
     }
 
@@ -178,12 +174,12 @@ abstract class OAuthClient
      * Finish an OAuth authorization
      *
      * @param string $code The authorization code given by the OAuth server
-     * @param string $state The authorization staten given by the OAuth server
+     * @param string $state The authorization state given by the OAuth server
+     * @param string $scope The scope for the granted authorization (syntax varies depending on the service)
      * @return string The URI to return to
-     * @throws IdentityProviderException
      * @throws OAuthClientException
      */
-    public function finishAuthorization(string $code, string $state)
+    public function finishAuthorization(string $code, string $state, string $scope)
     {
         $stateFromSession = $this->session->getData(static::getServiceName() . '.oAuthState');
         if (empty($state) || $stateFromSession !== $state) {
@@ -192,15 +188,7 @@ abstract class OAuthClient
 
         $clientId = (string)$this->session->getData(static::getServiceName() . '.oAuthClientId');
         $clientSecret = (string)$this->session->getData(static::getServiceName() . '.oAuthClientSecret');
-
-        $this->oAuthProvider = new GenericProvider([
-            'clientId' => $clientId,
-            'clientSecret' => $clientSecret,
-            'redirectUri' => $this->renderRedirectUri(),
-            'urlAuthorize' => $this->getAuthorizeTokenUri(),
-            'urlAccessToken' => $this->getAccessTokenUri(),
-            'urlResourceOwnerDetails' => $this->getResourceOwnerUri()
-        ]);
+        $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
 
         try {
             $this->logger->log(sprintf(static::getServiceName() . ': Finishing authorization for client "%s" using a %s bytes long secret.', $clientId, strlen($clientSecret)), LOG_INFO);
@@ -213,15 +201,8 @@ abstract class OAuthClient
                 $this->logger->log(sprintf(static::getServiceName() . ': Removed old OAuth token for client "%s".', $clientId), LOG_INFO);
             }
 
-            $accessToken = $this->oAuthProvider->getAccessToken('authorization_code', ['code' => $code]);
-
-            $oAuthToken = new OAuthToken();
-            $oAuthToken->clientId = $clientId;
-            $oAuthToken->serviceName = static::getServiceName();
-            $oAuthToken->clientSecret = $clientSecret;
-            $oAuthToken->accessToken = $accessToken->getToken();
-            $oAuthToken->refreshToken = $accessToken->getRefreshToken();
-            $oAuthToken->expires = ($accessToken->getExpires() ? \DateTimeImmutable::createFromFormat('U', $accessToken->getExpires()) : null);
+            $accessToken = $oAuthProvider->getAccessToken('authorization_code', ['code' => $code]);
+            $oAuthToken = $this->createNewOAuthToken($clientId, $clientSecret, $accessToken, $scope);
 
             $this->logger->log(sprintf(static::getServiceName() . ': Persisted new OAuth token for client "%s" with expiry time %s.', $clientId, $accessToken->getExpires()), LOG_INFO);
 
@@ -249,20 +230,12 @@ abstract class OAuthClient
         if (!$oAuthToken instanceof OAuthToken) {
             throw new OAuthClientException(static::getServiceName() . ': Could not refresh OAuth2 token because it was not found in our database.', 1505317044316);
         }
-
-        $this->oAuthProvider = new GenericProvider([
-            'clientId' => $clientId,
-            'clientSecret' => $oAuthToken->clientSecret,
-            'redirectUri' => $this->renderRedirectUri(),
-            'urlAuthorize' => $this->getAuthorizeTokenUri(),
-            'urlAccessToken' => $this->getAccessTokenUri(),
-            'urlResourceOwnerDetails' => $this->getResourceOwnerUri()
-        ]);
+        $oAuthProvider = $this->createOAuthProvider($clientId, $oAuthToken->clientSecret);
 
         $this->logger->log(sprintf(static::getServiceName() . ': Refreshing authorization for client "%s" using a %s bytes long secret and refresh token "%s".', $clientId, strlen($oAuthToken->clientSecret), $oAuthToken->refreshToken), LOG_INFO);
 
         try {
-            $accessToken = $this->oAuthProvider->getAccessToken('refresh_token', ['refresh_token' => $oAuthToken->refreshToken]);
+            $accessToken = $oAuthProvider->getAccessToken('refresh_token', ['refresh_token' => $oAuthToken->refreshToken]);
             $oAuthToken->accessToken = $accessToken->getToken();
             $oAuthToken->expires = ($accessToken->getExpires() ? \DateTimeImmutable::createFromFormat('U', $accessToken->getExpires()) : null);
 
@@ -278,17 +251,11 @@ abstract class OAuthClient
     }
 
     /**
-     * @param string|null $clientId
      * @return OAuthToken|null
      */
-    public function getOAuthToken(string $clientId = null): ?OAuthToken
+    public function getOAuthToken(): ?OAuthToken
     {
-        if ($clientId !== null) {
-            $oAuthToken = $this->entityManager->find(OAuthToken::class, ['clientId' => $clientId, 'serviceName' => static::getServiceName()]);
-        } else {
-            $query = new Query(OAuthToken::class);
-            $oAuthToken = $query->execute()->getFirst();
-        }
+        $oAuthToken = $this->entityManager->find(OAuthToken::class, ['clientId' => $this->getClientId(), 'serviceName' => static::getServiceName()]);
         return ($oAuthToken instanceof OAuthToken) ? $oAuthToken : null;
     }
 
@@ -312,23 +279,17 @@ abstract class OAuthClient
             $this->refreshAuthorization($oAuthToken->clientId, '');
             $oAuthToken = $this->getOAuthToken();
         }
-
-        $this->oAuthProvider = new GenericProvider([
-            'clientId' => $oAuthToken->clientId,
-            'clientSecret' => $oAuthToken->clientSecret,
-            'redirectUri' => $this->renderRedirectUri(),
-            'urlAuthorize' => $this->getAuthorizeTokenUri(),
-            'urlAccessToken' => $this->getAccessTokenUri(),
-            'urlResourceOwnerDetails' => $this->getResourceOwnerUri()
-        ]);
-
+        $oAuthProvider = $this->createOAuthProvider($oAuthToken->clientId, $oAuthToken->clientSecret);
         $body = ($bodyFields !== [] ? \GuzzleHttp\json_encode($bodyFields) : '');
 
-        return $this->oAuthProvider->getAuthenticatedRequest(
+        return $oAuthProvider->getAuthenticatedRequest(
             $method,
             $this->getBaseUri() . $relativeUri,
             $oAuthToken->accessToken,
             [
+                'headers' => [
+                    'Content-Type' => 'application/json'
+                ],
                 'body' => $body
             ]
         );
@@ -351,7 +312,7 @@ abstract class OAuthClient
     /**
      * @return string
      */
-    protected function renderRedirectUri(): string
+    public function renderRedirectUri(): string
     {
         $currentRequestHandler = $this->bootstrap->getActiveRequestHandler();
         if ($currentRequestHandler instanceof HttpRequestHandlerInterface) {
@@ -359,7 +320,7 @@ abstract class OAuthClient
         } else {
             putenv('FLOW_REWRITEURLS=1');
             $httpRequest = Request::createFromEnvironment();
-            $httpRequest->setBaseUri(new Uri($this->baseUriSetting));
+            $httpRequest->setBaseUri(new Uri($this->flowBaseUriSetting));
         }
         $actionRequest = new ActionRequest($httpRequest);
 
@@ -368,5 +329,47 @@ abstract class OAuthClient
         $this->uriBuilder->setCreateAbsoluteUri(true);
 
         return $this->uriBuilder->uriFor('finishAuthorization', ['serviceName' => static::getServiceName()], 'OAuth', 'Flownative.OAuth2.Client');
+    }
+
+    /**
+     * Create a new OAuthToken instance
+     *
+     * @param string $clientId
+     * @param string $clientSecret
+     * @param AccessToken $accessToken
+     * @param string $scope
+     * @return OAuthToken
+     */
+    protected function createNewOAuthToken(string $clientId, string $clientSecret, AccessToken $accessToken, string $scope): OAuthToken
+    {
+        $oAuthToken = new OAuthToken();
+        $oAuthToken->clientId = $clientId;
+        $oAuthToken->serviceName = static::getServiceName();
+        $oAuthToken->clientSecret = $clientSecret;
+        $oAuthToken->accessToken = $accessToken->getToken();
+        $oAuthToken->refreshToken = $accessToken->getRefreshToken();
+        $oAuthToken->expires = ($accessToken->getExpires() ? \DateTimeImmutable::createFromFormat('U', $accessToken->getExpires()) : null);
+        $oAuthToken->scope = $scope;
+
+        return $oAuthToken;
+    }
+
+    /**
+     * @param string $clientId
+     * @param string $clientSecret
+     * @return GenericProvider
+     */
+    protected function createOAuthProvider(string $clientId, string $clientSecret): GenericProvider
+    {
+        return new GenericProvider([
+            'clientId' => $clientId,
+            'clientSecret' => $clientSecret,
+            'redirectUri' => $this->renderRedirectUri(),
+            'urlAuthorize' => $this->getAuthorizeTokenUri(),
+            'urlAccessToken' => $this->getAccessTokenUri(),
+            'urlResourceOwnerDetails' => $this->getResourceOwnerUri()
+        ], [
+            'requestFactory' => $this->getRequestFactory()
+        ]);
     }
 }

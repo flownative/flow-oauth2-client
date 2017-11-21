@@ -43,4 +43,9 @@ class OAuthToken
      * @ORM\Column(nullable = true)
      */
     public $expires;
+
+    /**
+     * @var string
+     */
+    public $scope;
 }
