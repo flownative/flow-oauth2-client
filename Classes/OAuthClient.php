@@ -310,10 +310,6 @@ abstract class OAuthClient
             throw new OAuthClientException('No OAuthToken found.', 1505321014388);
         }
 
-        if ($oAuthToken->expires < new \DateTimeImmutable()) {
-            $this->refreshAuthorization($oAuthToken->clientId, '');
-            $oAuthToken = $this->getOAuthToken();
-        }
         $oAuthProvider = $this->createOAuthProvider($oAuthToken->clientId, $oAuthToken->clientSecret);
 
         if ($oAuthToken->expires < new \DateTimeImmutable()) {
