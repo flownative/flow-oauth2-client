@@ -2,9 +2,8 @@ Neos:
   Flow:
     mvc:
       routes:
-        'Flownative.OAuth2.Client': true
-        'Neos.Flow':
-          'position': 'after Flownative.OAuth2.Client'
+        'Flownative.OAuth2.Client':
+          'position': 'after Neos.Flow'
 
 Flownative:
   OAuth2:

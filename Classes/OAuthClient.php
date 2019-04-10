@@ -4,7 +4,11 @@ namespace Flownative\OAuth2\Client;
 
 use Doctrine\Common\Persistence\ObjectManager as DoctrineObjectManager;
 use Doctrine\ORM\EntityManager as DoctrineEntityManager;
+use Doctrine\ORM\OptimisticLockException;
+use Doctrine\ORM\ORMException;
+use Doctrine\ORM\TransactionRequiredException;
 use GuzzleHttp\Client;
+use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Psr7\Response;
 use League\OAuth2\Client\Provider\Exception\IdentityProviderException;
 use League\OAuth2\Client\Provider\GenericProvider;
@@ -17,8 +21,9 @@ use Neos\Flow\Http\Request;
 use Neos\Flow\Http\Uri;
 use Neos\Flow\Log\SystemLoggerInterface;
 use Neos\Flow\Mvc\ActionRequest;
+use Neos\Flow\Mvc\Routing\Exception\MissingActionNameException;
 use Neos\Flow\Mvc\Routing\UriBuilder;
-use Neos\Flow\Persistence\Doctrine\Query;
+use Neos\Flow\Session\Exception\SessionNotStartedException;
 use Neos\Flow\Session\SessionInterface;
 
 abstract class OAuthClient
@@ -67,7 +72,7 @@ abstract class OAuthClient
      * @param DoctrineObjectManager $entityManager
      * @return void
      */
-    public function injectEntityManager(DoctrineObjectManager $entityManager)
+    public function injectEntityManager(DoctrineObjectManager $entityManager): void
     {
         $this->entityManager = $entityManager;
     }
@@ -77,7 +82,7 @@ abstract class OAuthClient
      *
      * @return string For example, "FlownativeBeach", "Paypal", "Stripe", "Twitter"
      */
-    abstract static public function getServiceName(): string;
+    abstract public static function getServiceName(): string;
 
     /**
      * Returns the OAuth server's base URI
@@ -145,9 +150,12 @@ abstract class OAuthClient
      * @param string $clientId
      * @param string $clientSecret
      * @param string $scope
+     * @return void
      * @throws IdentityProviderException
+     * @throws ORMException
+     * @throws OptimisticLockException
      */
-    public function addClientCredentials(string $clientId, string $clientSecret, string $scope = '')
+    public function addClientCredentials(string $clientId, string $clientSecret, string $scope = ''): void
     {
         $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
 
@@ -181,8 +189,11 @@ abstract class OAuthClient
      * @param string $clientSecret The client secret, provided by the OAuth server
      * @param string $returnToUri URI to return to when authorization is finished
      * @return string The URL the browser should redirect to, asking the user to authorize
+     * @throws ORMException
+     * @throws OptimisticLockException
+     * @throws SessionNotStartedException
      */
-    public function startAuthorization(string $clientId, string $clientSecret, string $returnToUri)
+    public function startAuthorization(string $clientId, string $clientSecret, string $returnToUri): string
     {
         $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
         $authorizationUri = $oAuthProvider->getAuthorizationUrl();
@@ -213,8 +224,12 @@ abstract class OAuthClient
      * @param string $scope The scope for the granted authorization (syntax varies depending on the service)
      * @return string The URI to return to
      * @throws OAuthClientException
+     * @throws ORMException
+     * @throws OptimisticLockException
+     * @throws SessionNotStartedException
+     * @throws TransactionRequiredException
      */
-    public function finishAuthorization(string $code, string $state, string $scope)
+    public function finishAuthorization(string $code, string $state, string $scope): string
     {
         $stateFromSession = $this->session->getData(static::getServiceName() . '.oAuthState');
         if (empty($state) || $stateFromSession !== $state) {
@@ -256,8 +271,10 @@ abstract class OAuthClient
      * @param string $clientId
      * @param string $returnToUri
      * @return string
-     * @throws IdentityProviderException
      * @throws OAuthClientException
+     * @throws ORMException
+     * @throws OptimisticLockException
+     * @throws TransactionRequiredException
      */
     public function refreshAuthorization(string $clientId, string $returnToUri): string
     {
@@ -287,6 +304,9 @@ abstract class OAuthClient
 
     /**
      * @return OAuthToken|null
+     * @throws ORMException
+     * @throws OptimisticLockException
+     * @throws TransactionRequiredException
      */
     public function getOAuthToken(): ?OAuthToken
     {
@@ -301,9 +321,13 @@ abstract class OAuthClient
      * @param string $method The HTTP method, for example "GET" or "POST"
      * @param array $bodyFields Associative array of body fields to send (optional)
      * @return \Psr\Http\Message\RequestInterface
+     * @throws IdentityProviderException
      * @throws OAuthClientException
+     * @throws ORMException
+     * @throws OptimisticLockException
+     * @throws TransactionRequiredException
      */
-    public function getAuthenticatedRequest(string $relativeUri, string $method = 'GET', array $bodyFields = [])
+    public function getAuthenticatedRequest(string $relativeUri, string $method = 'GET', array $bodyFields = []): \Psr\Http\Message\RequestInterface
     {
         $oAuthToken = $this->getOAuthToken();
         if (!$oAuthToken instanceof OAuthToken) {
@@ -357,6 +381,12 @@ abstract class OAuthClient
      * @param string $method
      * @param array $bodyFields
      * @return Response
+     * @throws IdentityProviderException
+     * @throws OAuthClientException
+     * @throws ORMException
+     * @throws OptimisticLockException
+     * @throws TransactionRequiredException
+     * @throws GuzzleException
      */
     public function sendAuthenticatedRequest(string $relativeUri, string $method = 'GET', array $bodyFields = []): Response
     {
@@ -385,7 +415,11 @@ abstract class OAuthClient
         $this->uriBuilder->setRequest($actionRequest);
         $this->uriBuilder->setCreateAbsoluteUri(true);
 
-        return $this->uriBuilder->uriFor('finishAuthorization', ['serviceName' => static::getServiceName()], 'OAuth', 'Flownative.OAuth2.Client');
+        try {
+            return $this->uriBuilder->uriFor('finishAuthorization', ['serviceName' => static::getServiceName()], 'OAuth', 'Flownative.OAuth2.Client');
+        } catch (MissingActionNameException $e) {
+            return '';
+        }
     }
 
     /**
