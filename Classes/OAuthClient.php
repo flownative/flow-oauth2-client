@@ -12,7 +12,7 @@ use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Psr7\Response;
 use League\OAuth2\Client\Provider\Exception\IdentityProviderException;
 use League\OAuth2\Client\Provider\GenericProvider;
-use League\OAuth2\Client\Token\AccessToken;
+use League\OAuth2\Client\Token\AccessTokenInterface;
 use League\OAuth2\Client\Tool\RequestFactory;
 use Neos\Flow\Annotations as Flow;
 use Neos\Flow\Core\Bootstrap;
@@ -25,6 +25,7 @@ use Neos\Flow\Mvc\Routing\Exception\MissingActionNameException;
 use Neos\Flow\Mvc\Routing\UriBuilder;
 use Neos\Flow\Session\Exception\SessionNotStartedException;
 use Neos\Flow\Session\SessionInterface;
+use Psr\Http\Message\RequestInterface;
 
 abstract class OAuthClient
 {
@@ -69,6 +70,19 @@ abstract class OAuthClient
     protected $logger;
 
     /**
+     * @var string
+     */
+    protected $serviceName;
+
+    /**
+     * @param string $serviceName
+     */
+    public function __construct(string $serviceName)
+    {
+        $this->serviceName = $serviceName;
+    }
+
+    /**
      * @param DoctrineObjectManager $entityManager
      * @return void
      */
@@ -82,7 +96,10 @@ abstract class OAuthClient
      *
      * @return string For example, "FlownativeBeach", "Paypal", "Stripe", "Twitter"
      */
-    abstract public static function getServiceName(): string;
+    public function getServiceName(): string
+    {
+        return $this->serviceName;
+    }
 
     /**
      * Returns the OAuth server's base URI
@@ -160,20 +177,20 @@ abstract class OAuthClient
         $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
 
         try {
-            $this->logger->log(sprintf(static::getServiceName() . 'Setting client credentials for client "%s" using a %s bytes long secret.', $clientId, strlen($clientSecret)), LOG_INFO);
+            $this->logger->log(sprintf($this->getServiceName() . 'Setting client credentials for client "%s" using a %s bytes long secret.', $clientId, strlen($clientSecret)), LOG_INFO);
 
             $oldOAuthToken = $this->getOAuthToken();
             if ($oldOAuthToken !== null) {
                 $this->entityManager->remove($oldOAuthToken);
                 $this->entityManager->flush();
 
-                $this->logger->log(sprintf(static::getServiceName() . 'Removed old OAuth token for client "%s".', $clientId), LOG_INFO);
+                $this->logger->log(sprintf($this->getServiceName() . 'Removed old OAuth token for client "%s".', $clientId), LOG_INFO);
             }
 
             $accessToken = $oAuthProvider->getAccessToken('client_credentials');
             $oAuthToken = $this->createNewOAuthToken($clientId, $clientSecret, 'client_credentials', $accessToken, $scope);
 
-            $this->logger->log(sprintf(static::getServiceName() . 'Persisted new OAuth token for client "%s" with expiry time %s.', $clientId, $accessToken->getExpires()), LOG_INFO);
+            $this->logger->log(sprintf($this->getServiceName() . 'Persisted new OAuth token for client "%s" with expiry time %s.', $clientId, $accessToken->getExpires()), LOG_INFO);
 
             $this->entityManager->persist($oAuthToken);
             $this->entityManager->flush();
@@ -188,30 +205,34 @@ abstract class OAuthClient
      * @param string $clientId The client id, as provided by the OAuth server
      * @param string $clientSecret The client secret, provided by the OAuth server
      * @param string $returnToUri URI to return to when authorization is finished
-     * @return string The URL the browser should redirect to, asking the user to authorize
+     * @return Uri The URL the browser should redirect to, asking the user to authorize
      * @throws ORMException
      * @throws OptimisticLockException
      * @throws SessionNotStartedException
      */
-    public function startAuthorization(string $clientId, string $clientSecret, string $returnToUri): string
+    public function startAuthorization(string $clientId, string $clientSecret, string $returnToUri): Uri
     {
         $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
-        $authorizationUri = $oAuthProvider->getAuthorizationUrl();
+        $authorizationUri = new Uri($oAuthProvider->getAuthorizationUrl());
 
-        $this->logger->log(sprintf(static::getServiceName() . ': Starting authorization for client "%s" using a %s bytes long secret, returning to "%s".', $clientId, strlen($clientSecret), $returnToUri), LOG_INFO);
+        $this->logger->log(sprintf($this->getServiceName() . ': Starting authorization for client "%s" using a %s bytes long secret, returning to "%s".', $clientId, strlen($clientSecret), $returnToUri), LOG_INFO);
 
         $oldOAuthToken = $this->getOAuthToken();
         if ($oldOAuthToken !== null) {
             $this->entityManager->remove($oldOAuthToken);
             $this->entityManager->flush();
 
-            $this->logger->log(sprintf(static::getServiceName() . ': Removed old OAuth token for client "%s".', $oldOAuthToken->clientId), LOG_INFO);
+            $this->logger->log(sprintf($this->getServiceName() . ': Removed old OAuth token for client "%s".', $oldOAuthToken->clientId), LOG_INFO);
         }
 
-        $this->session->putData(static::getServiceName() . '.oAuthClientId', $clientId);
-        $this->session->putData(static::getServiceName() . '.oAuthClientSecret', $clientSecret);
-        $this->session->putData(static::getServiceName() . '.oAuthState', $oAuthProvider->getState());
-        $this->session->putData(static::getServiceName() . '.returnToUri', $returnToUri);
+        if (!$this->session->isStarted()) {
+            $this->session->start();
+        }
+
+        $this->session->putData($this->getServiceName() . '.oAuthClientId', $clientId);
+        $this->session->putData($this->getServiceName() . '.oAuthClientSecret', $clientSecret);
+        $this->session->putData($this->getServiceName() . '.oAuthState', $oAuthProvider->getState());
+        $this->session->putData($this->getServiceName() . '.returnToUri', $returnToUri);
 
         return $authorizationUri;
     }
@@ -222,39 +243,39 @@ abstract class OAuthClient
      * @param string $code The authorization code given by the OAuth server
      * @param string $state The authorization state given by the OAuth server
      * @param string $scope The scope for the granted authorization (syntax varies depending on the service)
-     * @return string The URI to return to
+     * @return Uri The URI to return to
      * @throws OAuthClientException
      * @throws ORMException
      * @throws OptimisticLockException
      * @throws SessionNotStartedException
      * @throws TransactionRequiredException
      */
-    public function finishAuthorization(string $code, string $state, string $scope): string
+    public function finishAuthorization(string $code, string $state, string $scope): Uri
     {
-        $stateFromSession = $this->session->getData(static::getServiceName() . '.oAuthState');
+        $stateFromSession = $this->session->isStarted() ? $this->session->getData($this->getServiceName() . '.oAuthState') : null;
         if (empty($state) || $stateFromSession !== $state) {
             throw new OAuthClientException('Invalid oAuth2 state.', 1505313625652);
         }
 
-        $clientId = (string)$this->session->getData(static::getServiceName() . '.oAuthClientId');
-        $clientSecret = (string)$this->session->getData(static::getServiceName() . '.oAuthClientSecret');
+        $clientId = (string)$this->session->getData($this->getServiceName() . '.oAuthClientId');
+        $clientSecret = (string)$this->session->getData($this->getServiceName() . '.oAuthClientSecret');
         $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
 
         try {
-            $this->logger->log(sprintf(static::getServiceName() . ': Finishing authorization for client "%s" using a %s bytes long secret.', $clientId, strlen($clientSecret)), LOG_INFO);
+            $this->logger->log(sprintf($this->getServiceName() . ': Finishing authorization for client "%s" using a %s bytes long secret.', $clientId, strlen($clientSecret)), LOG_INFO);
 
-            $oldOAuthToken = $this->entityManager->find(OAuthToken::class, ['clientId' => $clientId, 'serviceName' => static::getServiceName()]);
+            $oldOAuthToken = $this->entityManager->find(OAuthToken::class, ['clientId' => $clientId, 'serviceName' => $this->getServiceName()]);
             if ($oldOAuthToken !== null) {
                 $this->entityManager->remove($oldOAuthToken);
                 $this->entityManager->flush();
 
-                $this->logger->log(sprintf(static::getServiceName() . ': Removed old OAuth token for client "%s".', $clientId), LOG_INFO);
+                $this->logger->log(sprintf($this->getServiceName() . ': Removed old OAuth token for client "%s".', $clientId), LOG_INFO);
             }
 
             $accessToken = $oAuthProvider->getAccessToken('authorization_code', ['code' => $code]);
             $oAuthToken = $this->createNewOAuthToken($clientId, $clientSecret, 'authorization_code', $accessToken, $scope);
 
-            $this->logger->log(sprintf(static::getServiceName() . ': Persisted new OAuth token for client "%s" with expiry time %s.', $clientId, $accessToken->getExpires()), LOG_INFO);
+            $this->logger->log(sprintf($this->getServiceName() . ': Persisted new OAuth token for client "%s" with expiry time %s.', $clientId, $accessToken->getExpires()), LOG_INFO);
 
             $this->entityManager->persist($oAuthToken);
             $this->entityManager->flush();
@@ -262,7 +283,7 @@ abstract class OAuthClient
             throw new OAuthClientException($exception->getMessage(), 1511187001671, $exception);
         }
 
-        return (string)$this->session->getData(static::getServiceName() . '.returnToUri');
+        return new Uri((string)$this->session->getData($this->getServiceName() . '.returnToUri'));
     }
 
     /**
@@ -278,20 +299,20 @@ abstract class OAuthClient
      */
     public function refreshAuthorization(string $clientId, string $returnToUri): string
     {
-        $oAuthToken = $this->entityManager->find(OAuthToken::class, ['clientId' => $clientId, 'serviceName' => static::getServiceName()]);
+        $oAuthToken = $this->entityManager->find(OAuthToken::class, ['clientId' => $clientId, 'serviceName' => $this->getServiceName()]);
         if (!$oAuthToken instanceof OAuthToken) {
-            throw new OAuthClientException(static::getServiceName() . ': Could not refresh OAuth2 token because it was not found in our database.', 1505317044316);
+            throw new OAuthClientException($this->getServiceName() . ': Could not refresh OAuth2 token because it was not found in our database.', 1505317044316);
         }
         $oAuthProvider = $this->createOAuthProvider($clientId, $oAuthToken->clientSecret);
 
-        $this->logger->log(sprintf(static::getServiceName() . ': Refreshing authorization for client "%s" using a %s bytes long secret and refresh token "%s".', $clientId, strlen($oAuthToken->clientSecret), $oAuthToken->refreshToken), LOG_INFO);
+        $this->logger->log(sprintf($this->getServiceName() . ': Refreshing authorization for client "%s" using a %s bytes long secret and refresh token "%s".', $clientId, strlen($oAuthToken->clientSecret), $oAuthToken->refreshToken), LOG_INFO);
 
         try {
             $accessToken = $oAuthProvider->getAccessToken('refresh_token', ['refresh_token' => $oAuthToken->refreshToken]);
             $oAuthToken->accessToken = $accessToken->getToken();
             $oAuthToken->expires = ($accessToken->getExpires() ? \DateTimeImmutable::createFromFormat('U', $accessToken->getExpires()) : null);
 
-            $this->logger->log(sprintf(static::getServiceName() . ': New access token is "%s", refresh token is "%s".', $oAuthToken->accessToken, $oAuthToken->refreshToken), LOG_DEBUG);
+            $this->logger->log(sprintf($this->getServiceName() . ': New access token is "%s", refresh token is "%s".', $oAuthToken->accessToken, $oAuthToken->refreshToken), LOG_DEBUG);
 
             $this->entityManager->persist($oAuthToken);
             $this->entityManager->flush();
@@ -310,7 +331,7 @@ abstract class OAuthClient
      */
     public function getOAuthToken(): ?OAuthToken
     {
-        $oAuthToken = $this->entityManager->find(OAuthToken::class, ['clientId' => $this->getClientId(), 'serviceName' => static::getServiceName()]);
+        $oAuthToken = $this->entityManager->find(OAuthToken::class, ['clientId' => $this->getClientId(), 'serviceName' => $this->getServiceName()]);
         return ($oAuthToken instanceof OAuthToken) ? $oAuthToken : null;
     }
 
@@ -320,14 +341,14 @@ abstract class OAuthClient
      * @param string $relativeUri A relative URI of the web server, prepended by the base URI
      * @param string $method The HTTP method, for example "GET" or "POST"
      * @param array $bodyFields Associative array of body fields to send (optional)
-     * @return \Psr\Http\Message\RequestInterface
+     * @return RequestInterface
      * @throws IdentityProviderException
      * @throws OAuthClientException
      * @throws ORMException
      * @throws OptimisticLockException
      * @throws TransactionRequiredException
      */
-    public function getAuthenticatedRequest(string $relativeUri, string $method = 'GET', array $bodyFields = []): \Psr\Http\Message\RequestInterface
+    public function getAuthenticatedRequest(string $relativeUri, string $method = 'GET', array $bodyFields = []): RequestInterface
     {
         $oAuthToken = $this->getOAuthToken();
         if (!$oAuthToken instanceof OAuthToken) {
@@ -337,7 +358,7 @@ abstract class OAuthClient
         $oAuthProvider = $this->createOAuthProvider($oAuthToken->clientId, $oAuthToken->clientSecret);
 
         if ($oAuthToken->expires < new \DateTimeImmutable()) {
-            switch($oAuthToken->grantType) {
+            switch ($oAuthToken->grantType) {
                 case 'authorization_code':
                     $this->refreshAuthorization($oAuthToken->clientId, '');
                     $oAuthToken = $this->getOAuthToken();
@@ -345,15 +366,15 @@ abstract class OAuthClient
                 case 'client_credentials':
                     try {
                         $newAccessToken = $oAuthProvider->getAccessToken('client_credentials');
-                    } catch(IdentityProviderException $exception) {
-                        $this->logger->log(sprintf(static::getServiceName() . 'Failed retrieving new OAuth access token for client "%s" (client credentials grant): %s', $oAuthToken->clientId, $exception->getMessage()), LOG_ERR);
+                    } catch (IdentityProviderException $exception) {
+                        $this->logger->log(sprintf($this->getServiceName() . 'Failed retrieving new OAuth access token for client "%s" (client credentials grant): %s', $oAuthToken->clientId, $exception->getMessage()), LOG_ERR);
                         throw $exception;
                     }
 
                     $oAuthToken->accessToken = $newAccessToken->getToken();
                     $oAuthToken->expires = ($newAccessToken->getExpires() ? \DateTimeImmutable::createFromFormat('U', $newAccessToken->getExpires()) : null);
 
-                    $this->logger->log(sprintf(static::getServiceName() . 'Persisted new OAuth token for client "%s" with expiry time %s.', $oAuthToken->clientId, $newAccessToken->getExpires()), LOG_INFO);
+                    $this->logger->log(sprintf($this->getServiceName() . 'Persisted new OAuth token for client "%s" with expiry time %s.', $oAuthToken->clientId, $newAccessToken->getExpires()), LOG_INFO);
 
                     $this->entityManager->persist($oAuthToken);
                     $this->entityManager->flush();
@@ -398,6 +419,7 @@ abstract class OAuthClient
 
     /**
      * @return string
+     * @throws
      */
     public function renderRedirectUri(): string
     {
@@ -416,7 +438,7 @@ abstract class OAuthClient
         $this->uriBuilder->setCreateAbsoluteUri(true);
 
         try {
-            return $this->uriBuilder->uriFor('finishAuthorization', ['serviceName' => static::getServiceName()], 'OAuth', 'Flownative.OAuth2.Client');
+        return $this->uriBuilder->uriFor('finishAuthorization', ['serviceName' => $this->getServiceName()], 'OAuth', 'Flownative.OAuth2.Client');
         } catch (MissingActionNameException $e) {
             return '';
         }
@@ -428,15 +450,15 @@ abstract class OAuthClient
      * @param string $clientId
      * @param string $clientSecret
      * @param string $grantType
-     * @param AccessToken $accessToken
+     * @param AccessTokenInterface $accessToken
      * @param string $scope
      * @return OAuthToken
      */
-    protected function createNewOAuthToken(string $clientId, string $clientSecret, string $grantType, AccessToken $accessToken, string $scope): OAuthToken
+    protected function createNewOAuthToken(string $clientId, string $clientSecret, string $grantType, AccessTokenInterface $accessToken, string $scope): OAuthToken
     {
         $oAuthToken = new OAuthToken();
         $oAuthToken->clientId = $clientId;
-        $oAuthToken->serviceName = static::getServiceName();
+        $oAuthToken->serviceName = $this->getServiceName();
         $oAuthToken->grantType = $grantType;
         $oAuthToken->clientSecret = $clientSecret;
         $oAuthToken->accessToken = $accessToken->getToken();
