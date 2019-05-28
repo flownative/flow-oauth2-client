@@ -3,7 +3,7 @@ Neos:
     mvc:
       routes:
         'Flownative.OAuth2.Client':
-          'position': 'after Neos.Flow'
+          'position': 'before Neos.Flow'
 
 Flownative:
   OAuth2:

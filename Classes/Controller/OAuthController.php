@@ -10,15 +10,17 @@ use Neos\Flow\Reflection\ReflectionService;
 
 final class OAuthController extends ActionController
 {
-
     /**
      * @var array
      */
-    private $services;
+    private $serviceTypes;
 
-    public function initializeObject()
+    /**
+     * @return void
+     */
+    public function initializeObject(): void
     {
-        $this->services = self::detectServices($this->objectManager);
+        $this->serviceTypes = self::detectServiceTypes($this->objectManager);
     }
 
     /**
@@ -27,17 +29,24 @@ final class OAuthController extends ActionController
      * @param string $clientId
      * @param string $clientSecret
      * @param string $returnToUri
+     * @param string $serviceType
      * @param string $serviceName
      * @throws OAuthClientException
+     * @throws \Doctrine\ORM\ORMException
+     * @throws \Doctrine\ORM\OptimisticLockException
+     * @throws \Doctrine\ORM\TransactionRequiredException
+     * @throws \Neos\Flow\Mvc\Exception\StopActionException
+     * @throws \Neos\Flow\Mvc\Exception\UnsupportedRequestTypeException
+     * @throws \Neos\Flow\Session\Exception\SessionNotStartedException
      */
-    public function startAuthorizationAction(string $clientId, string $clientSecret, string $returnToUri, string $serviceName)
+    public function startAuthorizationAction(string $clientId, string $clientSecret, string $returnToUri, string $serviceType, string $serviceName): void
     {
-        if (!isset($this->services[$serviceName])) {
-            throw new OAuthClientException('Unknown client service.', 1511187873921);
+        if (!isset($this->serviceTypes[$serviceType])) {
+            throw new OAuthClientException(sprintf('Failed starting OAuth2 authorization, because the given service type "%s" is unknown.', $serviceType), 1511187873921);
         }
 
-        /** @var $client OAuthClient **/
-        $client = new $this->services[$serviceName];
+        $client = new $this->serviceTypes[$serviceName]($serviceName);
+        assert($client instanceof OAuthClient);
         $authorizeUri = $client->startAuthorization($clientId, $clientSecret, $returnToUri);
         $this->redirectToUri($authorizeUri);
     }
@@ -47,18 +56,26 @@ final class OAuthController extends ActionController
      *
      * @param string $code
      * @param string $state
+     * @param string $serviceType
      * @param string $serviceName
      * @param string $scope
      * @throws OAuthClientException
+     * @throws \Doctrine\ORM\ORMException
+     * @throws \Doctrine\ORM\OptimisticLockException
+     * @throws \Doctrine\ORM\TransactionRequiredException
+     * @throws \Neos\Flow\Mvc\Exception\StopActionException
+     * @throws \Neos\Flow\Mvc\Exception\UnsupportedRequestTypeException
+     * @throws \Neos\Flow\Session\Exception\SessionNotStartedException
      */
-    public function finishAuthorizationAction(string $code, string $state, string $serviceName, string $scope = '')
+    public function finishAuthorizationAction(string $code, string $state, string $serviceType, string $serviceName, string $scope = ''): void
     {
-        if (!isset($this->services[$serviceName])) {
-            throw new OAuthClientException('Unknown client service.', 1511193117184);
+        if (!isset($this->serviceTypes[$serviceType])) {
+            throw new OAuthClientException(sprintf('Failed finishing OAuth2 authorization because the given service type "%s" is unknown.', $serviceName), 1511193117184);
         }
 
-        /** @var $client OAuthClient **/
-        $client = new $this->services[$serviceName];
+        $client = new $this->serviceTypes[$serviceType]($serviceName);
+        assert($client instanceof OAuthClient);
+
         $returnToUri = $client->finishAuthorization($code, $state, $scope);
         $this->redirectToUri($returnToUri);
     }
@@ -70,15 +87,20 @@ final class OAuthController extends ActionController
      * @param string $returnToUri
      * @param string $serviceName
      * @throws OAuthClientException
+     * @throws \Doctrine\ORM\ORMException
+     * @throws \Doctrine\ORM\OptimisticLockException
+     * @throws \Doctrine\ORM\TransactionRequiredException
+     * @throws \Neos\Flow\Mvc\Exception\StopActionException
+     * @throws \Neos\Flow\Mvc\Exception\UnsupportedRequestTypeException
      */
-    public function refreshAuthorizationAction(string $clientId, string $returnToUri, string $serviceName)
+    public function refreshAuthorizationAction(string $clientId, string $returnToUri, string $serviceName): void
     {
-        if (!isset($this->services[$serviceName])) {
+        if (!isset($this->serviceTypes[$serviceName])) {
             throw new OAuthClientException('Unknown client service.', 1511193121713);
         }
 
-        /** @var $client OAuthClient **/
-        $client = new $this->services[$serviceName];
+        /** @var $client OAuthClient * */
+        $client = new $this->serviceTypes[$serviceName];
         $authorizeUri = $client->refreshAuthorization($clientId, $returnToUri);
         $this->redirectToUri($authorizeUri);
     }
@@ -90,19 +112,18 @@ final class OAuthController extends ActionController
      * @return array
      * @CompileStatic
      */
-    protected static function detectServices(ObjectManagerInterface $objectManager): array
+    protected static function detectServiceTypes(ObjectManagerInterface $objectManager): array
     {
-        $services = [];
+        $serviceTypes = [];
         /** @var ReflectionService $reflectionService */
         $reflectionService = $objectManager->get(ReflectionService::class);
-        foreach ($reflectionService->getAllSubClassNamesForClass(OAuthClient::class) as $serviceClassName) {
-            if ($reflectionService->isClassAbstract($serviceClassName)) {
+        foreach ($reflectionService->getAllSubClassNamesForClass(OAuthClient::class) as $serviceTypeClassName) {
+            if ($reflectionService->isClassAbstract($serviceTypeClassName)) {
                 continue;
             }
-            $serviceName = call_user_func_array([$serviceClassName, 'getServiceName'], []);
-            $services[$serviceName] = $serviceClassName;
+            $serviceType = call_user_func_array([$serviceTypeClassName, 'getServiceType'], []);
+            $serviceTypes[$serviceType] = $serviceTypeClassName;
         }
-
-        return $services;
+        return $serviceTypes;
     }
 }
