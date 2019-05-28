@@ -452,7 +452,11 @@ abstract class OAuthClient
         $this->uriBuilder->setCreateAbsoluteUri(true);
 
         try {
-        return $this->uriBuilder->uriFor('finishAuthorization', ['serviceName' => $this->getServiceName()], 'OAuth', 'Flownative.OAuth2.Client');
+            $uri = $this->uriBuilder->
+                reset()->
+                setCreateAbsoluteUri(true)->
+                uriFor('finishAuthorization', ['serviceType' => $this->getServiceType(), 'serviceName' => $this->getServiceName()], 'OAuth', 'Flownative.OAuth2.Client');
+            return $uri;
         } catch (MissingActionNameException $e) {
             return '';
         }
