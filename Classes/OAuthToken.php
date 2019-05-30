@@ -56,4 +56,9 @@ class OAuthToken
      * @var string
      */
     public $scope;
+
+    /**
+     * @var array
+     */
+    public $tokenValues;
 }

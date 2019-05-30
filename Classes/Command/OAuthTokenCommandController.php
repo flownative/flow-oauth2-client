@@ -3,7 +3,6 @@ namespace Flownative\OAuth2\Client\Command;
 
 use Doctrine\Common\Persistence\ObjectManager as DoctrineObjectManager;
 use Doctrine\ORM\EntityManager as DoctrineEntityManager;
-
 use Doctrine\ORM\OptimisticLockException;
 use Doctrine\ORM\ORMException;
 use Flownative\OAuth2\Client\OAuthToken;
@@ -46,10 +45,11 @@ final class OAuthTokenCommandController extends CommandController
                 $oAuthToken->clientId,
                 $oAuthToken->grantType,
                 $oAuthToken->scope,
-                $oAuthToken->expires->format('d. M Y H:i:s')
+                $oAuthToken->expires->format('d. M Y H:i:s'),
+                implode(', ', array_keys($oAuthToken->tokenValues))
             ];
         }
-        $this->output->outputTable($rows, ['Service Name', 'Client ID', 'Grant Type', 'Scope', 'Expiration Time']);
+        $this->output->outputTable($rows, ['Service Name', 'Client ID', 'Grant Type', 'Scope', 'Expiration Time', 'Values']);
     }
 
     /**

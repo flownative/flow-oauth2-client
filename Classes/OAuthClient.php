@@ -483,6 +483,7 @@ abstract class OAuthClient
         $oAuthToken->refreshToken = $accessToken->getRefreshToken();
         $oAuthToken->expires = ($accessToken->getExpires() ? \DateTimeImmutable::createFromFormat('U', $accessToken->getExpires()) : null);
         $oAuthToken->scope = $scope;
+        $oAuthToken->tokenValues = $accessToken->getValues();
 
         return $oAuthToken;
     }
