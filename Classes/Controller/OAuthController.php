@@ -4,6 +4,7 @@ namespace Flownative\OAuth2\Client\Controller;
 use Flownative\OAuth2\Client\OAuthClient;
 use Flownative\OAuth2\Client\OAuthClientException;
 use Neos\Flow\Annotations\CompileStatic;
+use Neos\Flow\Http\Uri;
 use Neos\Flow\Mvc\Controller\ActionController;
 use Neos\Flow\ObjectManagement\ObjectManagerInterface;
 use Neos\Flow\Reflection\ReflectionService;
@@ -28,7 +29,7 @@ final class OAuthController extends ActionController
      *
      * @param string $clientId
      * @param string $clientSecret
-     * @param string $returnToUri
+     * @param Uri $returnToUri
      * @param string $serviceType
      * @param string $serviceName
      * @throws OAuthClientException
@@ -37,18 +38,17 @@ final class OAuthController extends ActionController
      * @throws \Doctrine\ORM\TransactionRequiredException
      * @throws \Neos\Flow\Mvc\Exception\StopActionException
      * @throws \Neos\Flow\Mvc\Exception\UnsupportedRequestTypeException
-     * @throws \Neos\Flow\Session\Exception\SessionNotStartedException
      */
-    public function startAuthorizationAction(string $clientId, string $clientSecret, string $returnToUri, string $serviceType, string $serviceName): void
+    public function startAuthorizationAction(string $clientId, string $clientSecret, Uri $returnToUri, string $serviceType, string $serviceName): void
     {
-        if (!isset($this->serviceTypes[$serviceType])) {
-            throw new OAuthClientException(sprintf('Failed starting OAuth2 authorization, because the given service type "%s" is unknown.', $serviceType), 1511187873921);
-        }
-
-        $client = new $this->serviceTypes[$serviceName]($serviceName);
-        assert($client instanceof OAuthClient);
-        $authorizeUri = $client->startAuthorization($clientId, $clientSecret, $returnToUri);
-        $this->redirectToUri($authorizeUri);
+//        if (!isset($this->serviceTypes[$serviceType])) {
+//            throw new OAuthClientException(sprintf('Failed starting OAuth2 authorization, because the given service type "%s" is unknown.', $serviceType), 1511187873921);
+//        }
+//
+//        $client = new $this->serviceTypes[$serviceName]($serviceName);
+//        assert($client instanceof OAuthClient);
+//        $authorizeUri = $client->startAuthorization($clientId, $clientSecret, $returnToUri);
+//        $this->redirectToUri($authorizeUri);
     }
 
     /**
@@ -65,7 +65,6 @@ final class OAuthController extends ActionController
      * @throws \Doctrine\ORM\TransactionRequiredException
      * @throws \Neos\Flow\Mvc\Exception\StopActionException
      * @throws \Neos\Flow\Mvc\Exception\UnsupportedRequestTypeException
-     * @throws \Neos\Flow\Session\Exception\SessionNotStartedException
      */
     public function finishAuthorizationAction(string $code, string $state, string $serviceType, string $serviceName, string $scope = ''): void
     {
@@ -95,14 +94,14 @@ final class OAuthController extends ActionController
      */
     public function refreshAuthorizationAction(string $clientId, string $returnToUri, string $serviceName): void
     {
-        if (!isset($this->serviceTypes[$serviceName])) {
-            throw new OAuthClientException('Unknown client service.', 1511193121713);
-        }
-
-        /** @var $client OAuthClient * */
-        $client = new $this->serviceTypes[$serviceName];
-        $authorizeUri = $client->refreshAuthorization($clientId, $returnToUri);
-        $this->redirectToUri($authorizeUri);
+//        if (!isset($this->serviceTypes[$serviceName])) {
+//            throw new OAuthClientException('Unknown client service.', 1511193121713);
+//        }
+//
+//        /** @var $client OAuthClient * */
+//        $client = new $this->serviceTypes[$serviceName];
+//        $authorizeUri = $client->refreshAuthorization($clientId, $returnToUri);
+//        $this->redirectToUri($authorizeUri);
     }
 
     /**

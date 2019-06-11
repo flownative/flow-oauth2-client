@@ -1,0 +1,5 @@
+Flownative_OAuth2_Client_State:
+  frontend: Neos\Cache\Frontend\VariableFrontend
+  backend: Neos\Cache\Backend\FileBackend
+  backendOptions:
+    defaultLifetime: 3600

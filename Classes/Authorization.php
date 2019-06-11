@@ -9,16 +9,21 @@ use Neos\Flow\Annotations as Flow;
  *
  * @Flow\Entity
  */
-class OAuthToken
+class Authorization
 {
     /**
      * @ORM\Id
      * @var string
      */
+    public $authorizationId;
+
+    /**
+    /**
+     * @var string
+     */
     public $clientId;
 
     /**
-     * @ORM\Id
      * @var string
      */
     public $serviceName;

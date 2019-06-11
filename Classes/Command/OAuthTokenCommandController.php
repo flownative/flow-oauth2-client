@@ -5,7 +5,7 @@ use Doctrine\Common\Persistence\ObjectManager as DoctrineObjectManager;
 use Doctrine\ORM\EntityManager as DoctrineEntityManager;
 use Doctrine\ORM\OptimisticLockException;
 use Doctrine\ORM\ORMException;
-use Flownative\OAuth2\Client\OAuthToken;
+use Flownative\OAuth2\Client\Authorization;
 use Neos\Flow\Cli\CommandController;
 use Neos\Flow\Persistence\Doctrine\Query;
 
@@ -34,13 +34,14 @@ final class OAuthTokenCommandController extends CommandController
      */
     public function listCommand(): void
     {
-        $query = new Query(OAuthToken::class);
+        $query = new Query(Authorization::class);
         $oAuthTokens = $query->execute();
 
         $rows = [];
         foreach ($oAuthTokens as $oAuthToken) {
-            assert($oAuthToken instanceof OAuthToken);
+            assert($oAuthToken instanceof Authorization);
             $rows[] = [
+                $oAuthToken->authorizationId,
                 $oAuthToken->serviceName,
                 $oAuthToken->clientId,
                 $oAuthToken->grantType,
@@ -49,7 +50,7 @@ final class OAuthTokenCommandController extends CommandController
                 implode(', ', array_keys($oAuthToken->tokenValues))
             ];
         }
-        $this->output->outputTable($rows, ['Service Name', 'Client ID', 'Grant Type', 'Scope', 'Expiration Time', 'Values']);
+        $this->output->outputTable($rows, ['Authorization Id', 'Service Name', 'Client ID', 'Grant Type', 'Scope', 'Expiration Time', 'Values']);
     }
 
     /**
@@ -57,35 +58,34 @@ final class OAuthTokenCommandController extends CommandController
      *
      * This command removes one or all existing OAuth tokens
      *
-     * @param string $clientId
-     * @param string $serviceName
+     * @param string $authorizationId
      * @param bool $all
      * @return void
      * @throws ORMException
      * @throws OptimisticLockException
      * @throws \Doctrine\ORM\TransactionRequiredException
      */
-    public function removeCommand(string $clientId = '', string $serviceName = '', bool $all = false): void
+    public function removeCommand(string $authorizationId = '', bool $all = false): void
     {
-        if ((empty($clientId) || empty($serviceName)) && !$all) {
-            $this->outputLine('<error>Please specify either --client-id and --service-name or --all.</error>');
+        if (empty($authorizationId) && !$all) {
+            $this->outputLine('<error>Please specify either --authorization-id or --all.</error>');
             exit(1);
         }
 
         if ($all) {
-            $query = new Query(OAuthToken::class);
-            $oAuthTokens = $query->execute();
-            foreach ($oAuthTokens as $oAuthToken) {
-                assert($oAuthToken instanceof OAuthToken);
-                $this->entityManager->remove($oAuthToken);
+            $query = new Query(Authorization::class);
+            $authorizations = $query->execute();
+            foreach ($authorizations as $authorization) {
+                assert($authorization instanceof Authorization);
+                $this->entityManager->remove($authorization);
             }
         } else {
-            $oAuthToken = $this->entityManager->find(OAuthToken::class, ['clientId' => $clientId, 'serviceName' => $serviceName]);
-            if (!$oAuthToken) {
-                $this->outputLine('<error>Specified token was not found.</error>');
+            $authorization = $this->entityManager->find(Authorization::class, ['authorizationId' => $authorizationId]);
+            if (!$authorization) {
+                $this->outputLine('<error>Specified authorization was not found.</error>');
                 exit(1);
             }
-            $this->entityManager->remove($oAuthToken);
+            $this->entityManager->remove($authorization);
         }
         try {
             $this->entityManager->flush();
