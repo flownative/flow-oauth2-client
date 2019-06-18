@@ -1,13 +1,14 @@
-Neos:
-  Flow:
-    mvc:
-      routes:
-        'Flownative.OAuth2.Client':
-          'position': 'before Neos.Flow'
-
 Flownative:
   OAuth2:
     Client:
       services: []
 #        - name: 'flownative-beach'
 #          className: 'Flownative\Beach\BeachClient'
+
+
+Neos:
+  Flow:
+    mvc:
+      routes:
+        Flownative.OAuth2.Client:
+          position: 'start'

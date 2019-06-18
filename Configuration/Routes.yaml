@@ -3,7 +3,7 @@
 #
 
 -
-  name: 'Flownative OAuth Client: start authorization'
+  name: 'Flownative OAuth Client: authorization'
   uriPattern: 'oauth2/{serviceType}/{serviceName}/{@action}'
   defaults:
     '@package':    'Flownative.OAuth2.Client'
