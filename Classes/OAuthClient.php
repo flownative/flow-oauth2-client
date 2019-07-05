@@ -198,23 +198,24 @@ abstract class OAuthClient
         try {
             $this->logger->log(sprintf($this->getServiceType() . 'Setting client credentials for client "%s" using a %s bytes long secret.', $clientId, strlen($clientSecret)), LOG_INFO);
 
-            $oldOAuthToken = $this->getAuthorization();
-            if ($oldOAuthToken !== null) {
-                $this->entityManager->remove($oldOAuthToken);
+            $authorizationId = sprintf('%s-%s', $this->getServiceName(), $clientId);
+            $oldOAuthorization = $this->getAuthorization($authorizationId);
+            if ($oldOAuthorization !== null) {
+                $this->entityManager->remove($oldOAuthorization);
                 $this->entityManager->flush();
 
-                $this->logger->log(sprintf($this->getServiceType() . 'Removed old OAuth token for client "%s".', $clientId), LOG_INFO);
+                $this->logger->log(sprintf($this->getServiceType() . 'Removed old OAuth2 authorization for client "%s".', $clientId), LOG_INFO);
             }
 
             $accessToken = $oAuthProvider->getAccessToken('client_credentials');
             $authorization = $this->createNewAuthorization($authorizationId, $clientId, $clientSecret, 'client_credentials', $accessToken, $scope);
 
-            $this->logger->log(sprintf($this->getServiceType() . 'Persisted new OAuth authorization %s for client "%s" with expiry time %s.', $authorizationId, $clientId, $accessToken->getExpires()), LOG_INFO);
+            $this->logger->log(sprintf($this->getServiceType() . 'Persisted new OAuth2 authorization %s for client "%s" with expiry time %s.', $authorizationId, $clientId, $accessToken->getExpires()), LOG_INFO);
 
             $this->entityManager->persist($authorization);
             $this->entityManager->flush();
-        } catch (IdentityProviderException $e) {
-            throw $e;
+        } catch (IdentityProviderException $exception) {
+            throw $exception;
         }
     }
 
