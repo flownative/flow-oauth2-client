@@ -8,7 +8,6 @@ use Doctrine\ORM\EntityManager as DoctrineEntityManager;
 use Doctrine\ORM\OptimisticLockException;
 use Doctrine\ORM\ORMException;
 use Doctrine\ORM\TransactionRequiredException;
-use Flownative\OpenIdConnect\Client\OAuthProvider;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Psr7\Response;
@@ -27,6 +26,8 @@ use Neos\Flow\Log\SystemLoggerInterface;
 use Neos\Flow\Mvc\ActionRequest;
 use Neos\Flow\Mvc\Routing\Exception\MissingActionNameException;
 use Neos\Flow\Mvc\Routing\UriBuilder;
+use Neos\Flow\Persistence\Doctrine\Query;
+use Neos\Flow\Persistence\Exception\InvalidQueryException;
 use Neos\Flow\Session\SessionInterface;
 use Psr\Http\Message\RequestInterface;
 
@@ -51,6 +52,12 @@ abstract class OAuthClient
      * @var string
      */
     protected $flowBaseUriSetting;
+
+    /**
+     * @Flow\InjectConfiguration(path="garbageCollection.probability", package="Flownative.OAuth2.Client")
+     * @var float
+     */
+    protected $garbageCollectionProbability;
 
     /**
      * @var Client
@@ -508,5 +515,41 @@ abstract class OAuthClient
         ], [
             'requestFactory' => $this->getRequestFactory()
         ]);
+    }
+
+    /**
+     * @return void
+     * @throws ORMException
+     * @throws InvalidQueryException
+     */
+    protected function removeExpiredAuthorizations(): void
+    {
+        $query = new Query(Authorization::class);
+        $authorizations = $query->matching($query->lessThan('expires', new \DateTimeImmutable()))->execute();
+        foreach ($authorizations as $authorization) {
+            assert($authorization instanceof Authorization);
+            $this->entityManager->remove($authorization);
+        }
+
+        $this->entityManager->flush();
+    }
+
+    /**
+     * Shuts down this client
+     *
+     * This method must not be called manually – it is invoked by Flow's object
+     * management.
+     *
+     * @return void
+     * @throws InvalidQueryException
+     * @throws ORMException
+     */
+    public function shutdownObject()
+    {
+        $decimals = (integer)strlen(strrchr($this->garbageCollectionProbability, '.')) - 1;
+        $factor = ($decimals > -1) ? $decimals * 10 : 1;
+        if (rand(1, 100 * $factor) <= ($this->garbageCollectionProbability * $factor)) {
+            $this->removeExpiredAuthorizations();
+        }
     }
 }
