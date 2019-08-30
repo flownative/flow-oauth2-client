@@ -22,7 +22,8 @@ use Neos\Flow\Core\Bootstrap;
 use Neos\Flow\Http\HttpRequestHandlerInterface;
 use Neos\Flow\Http\Request;
 use Neos\Flow\Http\Uri;
-use Neos\Flow\Log\SystemLoggerInterface;
+use Neos\Flow\Log\PsrSystemLoggerInterface;
+use Neos\Flow\Log\Utility\LogEnvironment;
 use Neos\Flow\Mvc\ActionRequest;
 use Neos\Flow\Mvc\Routing\Exception\MissingActionNameException;
 use Neos\Flow\Mvc\Routing\UriBuilder;
@@ -77,7 +78,7 @@ abstract class OAuthClient
 
     /**
      * @Flow\Inject
-     * @var SystemLoggerInterface
+     * @var PsrSystemLoggerInterface
      */
     protected $logger;
 
@@ -136,7 +137,7 @@ abstract class OAuthClient
     /**
      * Returns the current client id (for sending authenticated requests)
      *
-     * @return string The client id which is known by the OAuth2 server
+     * @return string The client id which is known by the OAuth server
      */
     abstract public function getClientId(): string;
 
@@ -202,21 +203,22 @@ abstract class OAuthClient
     {
         $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
 
-        try {
-            $this->logger->log(sprintf($this->getServiceType() . 'Setting client credentials for client "%s" using a %s bytes long secret.', $clientId, strlen($clientSecret)), LOG_INFO);
 
-            $oldOAuthToken = $this->getAuthorization();
+        try {
+            $this->logger->info(sprintf('OAuth (%s): Retrieving client credentials for client "%s" using a %s bytes long secret.', $this->getServiceType(), $clientId, strlen($clientSecret)), LogEnvironment::fromMethodName(__METHOD__));
+
+            $oldOAuthToken = $this->getAuthorization($authorizationId);
             if ($oldOAuthToken !== null) {
                 $this->entityManager->remove($oldOAuthToken);
                 $this->entityManager->flush();
 
-                $this->logger->log(sprintf($this->getServiceType() . 'Removed old OAuth token for client "%s".', $clientId), LOG_INFO);
+                $this->logger->info(sprintf('OAuth (%s):  Removed old OAuth token for client "%s".', $this->getServiceType(), $clientId), LogEnvironment::fromMethodName(__METHOD__));
             }
 
             $accessToken = $oAuthProvider->getAccessToken('client_credentials');
             $authorization = $this->createNewAuthorization($authorizationId, $clientId, $clientSecret, 'client_credentials', $accessToken, $scope);
 
-            $this->logger->log(sprintf($this->getServiceType() . 'Persisted new OAuth authorization %s for client "%s" with expiry time %s.', $authorizationId, $clientId, $accessToken->getExpires()), LOG_INFO);
+            $this->logger->info(sprintf('OAuth (%s): Persisted new OAuth authorization %s for client "%s" with expiry time %s.', $this->getServiceType(), $authorizationId, $clientId, $accessToken->getExpires()), LogEnvironment::fromMethodName(__METHOD__));
 
             $this->entityManager->persist($authorization);
             $this->entityManager->flush();
@@ -226,7 +228,7 @@ abstract class OAuthClient
     }
 
     /**
-     * Start OAuth authorization
+     * Start OAuth authorization with the Authorization Code Flow
      *
      * @param string $clientId The client id, as provided by the OAuth server
      * @param string $clientSecret The client secret, provided by the OAuth server
@@ -251,10 +253,10 @@ abstract class OAuthClient
                 ]
             );
         } catch (Exception $exception) {
-            throw new OAuthClientException(sprintf('Failed setting cache entry for OAuth2 authorization: %s', $exception->getMessage()), 1560178858);
+            throw new OAuthClientException(sprintf('Failed setting cache entry for OAuth authorization: %s', $exception->getMessage()), 1560178858);
         }
 
-        $this->logger->log(sprintf('Flownative OAuth2 Client (%s): Starting authorization %s using client id "%s" and a %s bytes long secret, returning to "%s".', $this->getServiceType(), $stateIdentifier, $clientId, strlen($clientSecret), $returnToUri), LOG_INFO);
+        $this->logger->info(sprintf('OAuth (%s): Starting authorization %s using client id "%s" and a %s bytes long secret, returning to "%s".', $this->getServiceType(), $stateIdentifier, $clientId, strlen($clientSecret), $returnToUri), LogEnvironment::fromMethodName(__METHOD__));
         return $authorizationUri;
     }
 
@@ -274,7 +276,7 @@ abstract class OAuthClient
     {
         $stateFromCache = $this->stateCache->get($stateIdentifier);
         if (empty($stateFromCache)) {
-            throw new OAuthClientException(sprintf('Flownative OAuth2 Client: Finishing authorization failed because oAuth state %s could not be retrieved from the state cache.', $stateIdentifier), 1558956494);
+            throw new OAuthClientException(sprintf('OAuth2: Finishing authorization failed because oAuth state %s could not be retrieved from the state cache.', $stateIdentifier), 1558956494);
         }
 
         $clientId = $stateFromCache['clientId'];
@@ -282,19 +284,19 @@ abstract class OAuthClient
         $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
 
         try {
-            $this->logger->log(sprintf('Flownative OAuth2 Client (%s): Finishing authorization for client "%s", state "%s", using a %s bytes long secret.', $this->getServiceType(), $clientId, $stateIdentifier, strlen($clientSecret)), LOG_INFO);
+            $this->logger->info(sprintf('OAuth (%s): Finishing authorization for client "%s", state "%s", using a %s bytes long secret.', $this->getServiceType(), $clientId, $stateIdentifier, strlen($clientSecret)), LogEnvironment::fromMethodName(__METHOD__));
 
             $oldOAuthToken = $this->entityManager->find(Authorization::class, ['authorizationId' => $stateIdentifier]);
             if ($oldOAuthToken !== null) {
                 $this->entityManager->remove($oldOAuthToken);
                 $this->entityManager->flush();
 
-                $this->logger->log(sprintf($this->getServiceType() . ': Removed old OAuth token "%s".', $stateIdentifier), LOG_INFO);
+                $this->logger->info(sprintf('OAuth (%s): Removed old OAuth token "%s".', $this->getServiceType(), $stateIdentifier), LogEnvironment::fromMethodName(__METHOD__));
             }
             $accessToken = $oAuthProvider->getAccessToken('authorization_code', ['code' => $code]);
             $authorization = $this->createNewAuthorization($stateIdentifier, $clientId, $clientSecret, 'authorization_code', $accessToken, $scope);
 
-            $this->logger->log(sprintf('Flownative OAuth2 Client: Persisted new OAuth token for authorization "%s" with expiry time %s.', $stateIdentifier, $accessToken->getExpires()), LOG_INFO);
+            $this->logger->info(sprintf('OAuth (%s): Persisted new OAuth token for authorization "%s" with expiry time %s.', $this->getServiceType(), $stateIdentifier, $accessToken->getExpires()), LogEnvironment::fromMethodName(__METHOD__));
 
             $this->entityManager->persist($authorization);
             $this->entityManager->flush();
@@ -322,18 +324,18 @@ abstract class OAuthClient
     {
         $authorization = $this->entityManager->find(Authorization::class, ['authorizationId' => $authorizationId]);
         if (!$authorization instanceof Authorization) {
-            throw new OAuthClientException(sprintf('Flownative OAuth2 Client: Could not refresh OAuth2 token because authorization %s was not found in our database.', $authorization), 1505317044316);
+            throw new OAuthClientException(sprintf('OAuth2: Could not refresh OAuth token because authorization %s was not found in our database.', $authorization), 1505317044316);
         }
         $oAuthProvider = $this->createOAuthProvider($authorizationId, $clientId, $authorization->clientSecret);
 
-        $this->logger->log(sprintf($this->getServiceType() . ': Refreshing authorization %s for client "%s" using a %s bytes long secret and refresh token "%s".', $authorizationId, $clientId, strlen($authorization->clientSecret), $authorization->refreshToken), LOG_INFO);
+        $this->logger->info(sprintf('OAuth (%s): Refreshing authorization %s for client "%s" using a %s bytes long secret and refresh token "%s".', $this->getServiceType(), $authorizationId, $clientId, strlen($authorization->clientSecret), $authorization->refreshToken), LogEnvironment::fromMethodName(__METHOD__));
 
         try {
             $accessToken = $oAuthProvider->getAccessToken('refresh_token', ['refresh_token' => $authorization->refreshToken]);
             $authorization->accessToken = $accessToken->getToken();
             $authorization->expires = ($accessToken->getExpires() ? \DateTimeImmutable::createFromFormat('U', $accessToken->getExpires()) : null);
 
-            $this->logger->log(sprintf($this->getServiceType() . ': New access token is "%s", refresh token is "%s".', $authorization->accessToken, $authorization->refreshToken), LOG_DEBUG);
+            $this->logger->debug(sprintf($this->getServiceType() . ': New access token is "%s", refresh token is "%s".', $authorization->accessToken, $authorization->refreshToken), LogEnvironment::fromMethodName(__METHOD__));
 
             $this->entityManager->persist($authorization);
             $this->entityManager->flush();
@@ -389,14 +391,14 @@ abstract class OAuthClient
                     try {
                         $newAccessToken = $oAuthProvider->getAccessToken('client_credentials');
                     } catch (IdentityProviderException $exception) {
-                        $this->logger->log(sprintf($this->getServiceType() . 'Failed retrieving new OAuth access token for client "%s" (client credentials grant): %s', $oAuthToken->clientId, $exception->getMessage()), LOG_ERR);
+                        $this->logger->error(sprintf($this->getServiceType() . 'Failed retrieving new OAuth access token for client "%s" (client credentials grant): %s', $oAuthToken->clientId, $exception->getMessage()), LogEnvironment::fromMethodName(__METHOD__));
                         throw $exception;
                     }
 
                     $oAuthToken->accessToken = $newAccessToken->getToken();
                     $oAuthToken->expires = ($newAccessToken->getExpires() ? \DateTimeImmutable::createFromFormat('U', $newAccessToken->getExpires()) : null);
 
-                    $this->logger->log(sprintf($this->getServiceType() . 'Persisted new OAuth token for client "%s" with expiry time %s.', $oAuthToken->clientId, $newAccessToken->getExpires()), LOG_INFO);
+                    $this->logger->info(sprintf('OAuth (%s): Persisted new OAuth token for client "%s" with expiry time %s.', $this->getServiceType(), $oAuthToken->clientId, $newAccessToken->getExpires()), LogEnvironment::fromMethodName(__METHOD__));
 
                     $this->entityManager->persist($oAuthToken);
                     $this->entityManager->flush();
