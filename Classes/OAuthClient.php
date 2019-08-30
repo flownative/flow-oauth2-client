@@ -148,7 +148,7 @@ abstract class OAuthClient
      */
     public function getAccessTokenUri(): string
     {
-        return $this->getBaseUri() . '/oauth/token';
+        return trim($this->getBaseUri(), '/') . '/oauth/token';
     }
 
     /**
@@ -159,7 +159,7 @@ abstract class OAuthClient
      */
     public function getAuthorizeTokenUri(): string
     {
-        return $this->getBaseUri() . '/oauth/token/authorize';
+        return trim($this->getBaseUri(), '/') . '/oauth/token/authorize';
     }
 
     /**
@@ -170,7 +170,7 @@ abstract class OAuthClient
      */
     public function getResourceOwnerUri(): string
     {
-        return $this->getBaseUri() . '/oauth/token/resource';
+        return trim($this->getBaseUri(), '/') . '/oauth/token/resource';
     }
 
     /**
