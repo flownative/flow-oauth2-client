@@ -9,7 +9,7 @@ use Flownative\OAuth2\Client\Authorization;
 use Neos\Flow\Cli\CommandController;
 use Neos\Flow\Persistence\Doctrine\Query;
 
-final class OAuthTokenCommandController extends CommandController
+final class OAuthCommandController extends CommandController
 {
     /**
      * @var DoctrineEntityManager
@@ -26,48 +26,52 @@ final class OAuthTokenCommandController extends CommandController
     }
 
     /**
-     * List tokens
+     * List authorizations
      *
-     * This command lists all known OAuth tokens
+     * This command lists all known OAuth authorizations. With authorizations we keep track
+     * of access tokens for a given OAuth connection. An authorization is identified by
+     * a hash over service name, client id, grant type and scope.
      *
      * @return void
      */
-    public function listCommand(): void
+    public function listAuthorizationsCommand(): void
     {
         $query = new Query(Authorization::class);
-        $oAuthTokens = $query->execute();
+        $authorizations = $query->execute();
 
         $rows = [];
-        foreach ($oAuthTokens as $oAuthToken) {
-            assert($oAuthToken instanceof Authorization);
+        foreach ($authorizations as $authorization) {
+            assert($authorization instanceof Authorization);
+            $accessToken = $authorization->getAccessToken();
+            $expires = $accessToken ? \DateTimeImmutable::createFromFormat('U', $accessToken->getExpires())->format('d.m.Y H:i:s') : '';
+            $values = $accessToken ? implode(', ', array_keys($accessToken->getValues())) : '';
+
             $rows[] = [
-                $oAuthToken->authorizationId,
-                $oAuthToken->serviceName,
-                $oAuthToken->clientId,
-                $oAuthToken->grantType,
-                $oAuthToken->scope,
-                $oAuthToken->expires->format('d. M Y H:i:s'),
-                implode(', ', array_keys($oAuthToken->tokenValues))
+                $authorization->getAuthorizationId(),
+                $authorization->getServiceName(),
+                $authorization->getClientId(),
+                $authorization->getGrantType(),
+                $authorization->getScope(),
+                $expires,
+                $values
             ];
         }
         $this->output->outputTable($rows, ['Authorization Id', 'Service Name', 'Client ID', 'Grant Type', 'Scope', 'Expiration Time', 'Values']);
     }
 
     /**
-     * Remove token
+     * Remove authorization
      *
-     * This command removes one or all existing OAuth tokens
+     * This command removes one or all existing authorizations
      *
-     * @param string $authorizationId
+     * @param string $id
      * @param bool $all
      * @return void
-     * @throws ORMException
-     * @throws OptimisticLockException
-     * @throws \Doctrine\ORM\TransactionRequiredException
+     * @throws
      */
-    public function removeCommand(string $authorizationId = '', bool $all = false): void
+    public function removeAuthorizationsCommand(string $id = '', bool $all = false): void
     {
-        if (empty($authorizationId) && !$all) {
+        if (empty($id) && !$all) {
             $this->outputLine('<error>Please specify either --authorization-id or --all.</error>');
             exit(1);
         }
@@ -80,7 +84,7 @@ final class OAuthTokenCommandController extends CommandController
                 $this->entityManager->remove($authorization);
             }
         } else {
-            $authorization = $this->entityManager->find(Authorization::class, ['authorizationId' => $authorizationId]);
+            $authorization = $this->entityManager->find(Authorization::class, ['authorizationId' => $id]);
             if (!$authorization) {
                 $this->outputLine('<error>Specified authorization was not found.</error>');
                 exit(1);

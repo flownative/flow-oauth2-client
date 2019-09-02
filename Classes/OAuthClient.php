@@ -37,6 +37,11 @@ abstract class OAuthClient
     public const STATE_QUERY_PARAMETER_NAME = 'flownative_oauth2_state';
 
     /**
+     * @var string
+     */
+    protected $serviceName;
+
+    /**
      * @Flow\Inject
      * @var UriBuilder
      */
@@ -87,11 +92,6 @@ abstract class OAuthClient
      * @var VariableFrontend
      */
     protected $stateCache;
-
-    /**
-     * @var string
-     */
-    protected $serviceName;
 
     /**
      * @param string $serviceName
@@ -199,10 +199,12 @@ abstract class OAuthClient
      * @throws OptimisticLockException
      * @throws TransactionRequiredException
      */
-    public function addClientCredentials(string $clientId, string $clientSecret, string $scope = ''): void
+    public function getAccessToken(string $grant, string $clientId, string $clientSecret, string $scope = ''): void
     {
         $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
 
+        // FIXME
+        $authorizationId = 'foobarbaz';
 
         try {
             $this->logger->info(sprintf('OAuth (%s): Retrieving client credentials for client "%s" using a %s bytes long secret.', $this->getServiceType(), $clientId, strlen($clientSecret)), LogEnvironment::fromMethodName(__METHOD__));
@@ -216,7 +218,7 @@ abstract class OAuthClient
             }
 
             $accessToken = $oAuthProvider->getAccessToken('client_credentials');
-            $authorization = $this->createNewAuthorization($authorizationId, $clientId, $clientSecret, 'client_credentials', $accessToken, $scope);
+            $authorization = $this->createNewAuthorization($clientId, $clientSecret, 'client_credentials', $accessToken, $scope);
 
             $this->logger->info(sprintf('OAuth (%s): Persisted new OAuth authorization %s for client "%s" with expiry time %s.', $this->getServiceType(), $authorizationId, $clientId, $accessToken->getExpires()), LogEnvironment::fromMethodName(__METHOD__));
 
@@ -228,7 +230,7 @@ abstract class OAuthClient
     }
 
     /**
-     * Start OAuth authorization with the Authorization Code Flow
+     * Start OAuth authorization with the Authorization Code flow
      *
      * @param string $clientId The client id, as provided by the OAuth server
      * @param string $clientSecret The client secret, provided by the OAuth server
@@ -261,7 +263,7 @@ abstract class OAuthClient
     }
 
     /**
-     * Finish an OAuth authorization
+     * Finish an OAuth authorization with the Authorization Code flow
      *
      * @param string $code The authorization code given by the OAuth server
      * @param string $stateIdentifier The authorization identifier, passed back by the OAuth server as the "state" parameter
@@ -294,7 +296,7 @@ abstract class OAuthClient
                 $this->logger->info(sprintf('OAuth (%s): Removed old OAuth token "%s".', $this->getServiceType(), $stateIdentifier), LogEnvironment::fromMethodName(__METHOD__));
             }
             $accessToken = $oAuthProvider->getAccessToken('authorization_code', ['code' => $code]);
-            $authorization = $this->createNewAuthorization($stateIdentifier, $clientId, $clientSecret, 'authorization_code', $accessToken, $scope);
+            $authorization = $this->createNewAuthorization($clientId, $clientSecret, 'authorization_code', $accessToken, $scope);
 
             $this->logger->info(sprintf('OAuth (%s): Persisted new OAuth token for authorization "%s" with expiry time %s.', $this->getServiceType(), $stateIdentifier, $accessToken->getExpires()), LogEnvironment::fromMethodName(__METHOD__));
 
@@ -326,7 +328,7 @@ abstract class OAuthClient
         if (!$authorization instanceof Authorization) {
             throw new OAuthClientException(sprintf('OAuth2: Could not refresh OAuth token because authorization %s was not found in our database.', $authorization), 1505317044316);
         }
-        $oAuthProvider = $this->createOAuthProvider($authorizationId, $clientId, $authorization->clientSecret);
+        $oAuthProvider = $this->createOAuthProvider($clientId, $authorization->clientSecret);
 
         $this->logger->info(sprintf('OAuth (%s): Refreshing authorization %s for client "%s" using a %s bytes long secret and refresh token "%s".', $this->getServiceType(), $authorizationId, $clientId, strlen($authorization->clientSecret), $authorization->refreshToken), LogEnvironment::fromMethodName(__METHOD__));
 
@@ -438,7 +440,8 @@ abstract class OAuthClient
         if ($this->httpClient === null) {
             $this->httpClient = new Client();
         }
-        return $this->httpClient->send($this->getAuthenticatedRequest($relativeUri, $method, $bodyFields));
+        // FIXME
+#        return $this->httpClient->send($this->getAuthenticatedRequest($relativeUri, $method, $bodyFields));
     }
 
     /**
@@ -475,7 +478,6 @@ abstract class OAuthClient
     /**
      * Create a new OAuthToken instance
      *
-     * @param string $authorizationId
      * @param string $clientId
      * @param string $clientSecret
      * @param string $grantType
@@ -483,19 +485,10 @@ abstract class OAuthClient
      * @param string $scope
      * @return Authorization
      */
-    protected function createNewAuthorization(string $authorizationId, string $clientId, string $clientSecret, string $grantType, AccessTokenInterface $accessToken, string $scope): Authorization
+    protected function createNewAuthorization(string $clientId, string $clientSecret, string $grantType, AccessTokenInterface $accessToken, string $scope): Authorization
     {
-        $authorization = new Authorization();
-        $authorization->authorizationId = $authorizationId;
-        $authorization->clientId = $clientId;
-        $authorization->serviceName = $this->getServiceType();
-        $authorization->grantType = $grantType;
-        $authorization->clientSecret = $clientSecret;
-        $authorization->accessToken = $accessToken->getToken();
-        $authorization->refreshToken = $accessToken->getRefreshToken();
-        $authorization->expires = ($accessToken->getExpires() ? \DateTimeImmutable::createFromFormat('U', $accessToken->getExpires()) : null);
-        $authorization->scope = $scope;
-        $authorization->tokenValues = $accessToken->getValues();
+        $authorization = new Authorization($this->getServiceType(), $clientId, $clientSecret, $grantType, $scope);
+        $authorization->setAccessToken($accessToken);
 
         return $authorization;
     }
@@ -546,7 +539,7 @@ abstract class OAuthClient
      * @throws InvalidQueryException
      * @throws ORMException
      */
-    public function shutdownObject()
+    public function shutdownObject(): void
     {
         $decimals = (integer)strlen(strrchr($this->garbageCollectionProbability, '.')) - 1;
         $factor = ($decimals > -1) ? $decimals * 10 : 1;
