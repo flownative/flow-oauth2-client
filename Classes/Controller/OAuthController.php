@@ -32,12 +32,8 @@ final class OAuthController extends ActionController
      * @param Uri $returnToUri
      * @param string $serviceType
      * @param string $serviceName
-     * @throws OAuthClientException
-     * @throws \Doctrine\ORM\ORMException
-     * @throws \Doctrine\ORM\OptimisticLockException
-     * @throws \Doctrine\ORM\TransactionRequiredException
-     * @throws \Neos\Flow\Mvc\Exception\StopActionException
-     * @throws \Neos\Flow\Mvc\Exception\UnsupportedRequestTypeException
+     * @throws
+     * FIXME: Re-Implement
      */
     public function startAuthorizationAction(string $clientId, string $clientSecret, Uri $returnToUri, string $serviceType, string $serviceName): void
     {
@@ -54,44 +50,26 @@ final class OAuthController extends ActionController
     /**
      * Finish OAuth2 authorization
      *
-     * @param string $code
-     * @param string $state
-     * @param string $serviceType
-     * @param string $serviceName
-     * @param string $scope
+     * This action passes the given state and code to the OAuth client in order to finish an authorization in progress.
+     * If the authorization could be finished successfully, the action will redirect to the return URI which was specified
+     * while starting the authorization.
+     *
+     * @param string $serviceType The OAuth service type, ie. the type identifying the package / class implementing OAuth
+     * @param string $serviceName The OAuth service name, ie. the identifier of the concrete configuration of the given OAuth service implementation
+     * @param string $state The state by which the OAuth client can find the authorization in progress
+     * @param string $code The code issued by the OAuth server
      * @throws
      */
-    public function finishAuthorizationAction(string $code, string $state, string $serviceType, string $serviceName, string $scope = ''): void
+    public function finishAuthorizationAction(string $serviceType, string $serviceName, string $state, string $code): void
     {
         if (!isset($this->serviceTypes[$serviceType])) {
             throw new OAuthClientException(sprintf('OAuth: Failed finishing OAuth2 authorization because the given service type "%s" is unknown.', $serviceName), 1511193117184);
         }
-
         $client = new $this->serviceTypes[$serviceType]($serviceName);
-        assert($client instanceof OAuthClient);
-
-        $returnToUri = $client->finishAuthorization($code, $state, $scope);
-        $this->redirectToUri($returnToUri);
-    }
-
-    /**
-     * Refresh OAuth2 authorization
-     *
-     * @param string $clientId
-     * @param string $returnToUri
-     * @param string $serviceName
-     * @throws
-     */
-    public function refreshAuthorizationAction(string $clientId, string $returnToUri, string $serviceName): void
-    {
-//        if (!isset($this->serviceTypes[$serviceName])) {
-//            throw new OAuthClientException('Unknown client service.', 1511193121713);
-//        }
-//
-//        /** @var $client OAuthClient * */
-//        $client = new $this->serviceTypes[$serviceName];
-//        $authorizeUri = $client->refreshAuthorization($clientId, $returnToUri);
-//        $this->redirectToUri($authorizeUri);
+        if (!$client instanceof OAuthClient) {
+            throw new OAuthClientException(sprintf('OAuth: Failed finishing authorization because of unexpected class type: "%s" must implement %s.', get_class($client), OAuthClient::class), 1568735389);
+        }
+        $this->redirectToUri($client->finishAuthorization($state, $code));
     }
 
     /**

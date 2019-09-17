@@ -284,16 +284,15 @@ abstract class OAuthClient
     /**
      * Finish an OAuth authorization with the Authorization Code flow
      *
-     * @param string $code The authorization code given by the OAuth server
      * @param string $stateIdentifier The state identifier, passed back by the OAuth server as the "state" parameter
-     * @param string $scope The scope for the granted authorization (syntax varies depending on the service)
+     * @param string $code The authorization code given by the OAuth server
      * @return Uri The URI to return to
      * @throws OAuthClientException
      * @throws ORMException
      * @throws OptimisticLockException
      * @throws TransactionRequiredException
      */
-    public function finishAuthorization(string $code, string $stateIdentifier, string $scope): Uri
+    public function finishAuthorization(string $stateIdentifier, string $code): Uri
     {
         $stateFromCache = $this->stateCache->get($stateIdentifier);
         if (empty($stateFromCache)) {
