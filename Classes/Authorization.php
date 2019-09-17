@@ -25,6 +25,8 @@ use Neos\Flow\Annotations as Flow;
  */
 class Authorization
 {
+    public const GRANT_AUTHORIZATION_CODE = 'authorization_code';
+
     /**
      * @ORM\Id
      * @var string
@@ -67,18 +69,30 @@ class Authorization
     /**
      * @param string $serviceName
      * @param string $clientId
-     * @param string $clientSecret
      * @param string $grantType
      * @param string $scope
      */
-    public function __construct(string $serviceName, string $clientId, string $clientSecret, string $grantType, string $scope)
+    public function __construct(string $serviceName, string $clientId, string $grantType, string $scope)
     {
+        $this->authorizationId = self::calculateAuthorizationId($serviceName, $clientId, $grantType, $scope);
         $this->serviceName = $serviceName;
         $this->clientId = $clientId;
-        $this->clientSecret = $clientSecret;
         $this->grantType = $grantType;
         $this->scope = $scope;
-        $this->authorizationId = sha1($serviceName . $clientId . $grantType . $scope);
+    }
+
+    /**
+     * Calculate an authorization identifier (for this model) from the given parameters.
+     *
+     * @param string $serviceName
+     * @param string $clientId
+     * @param string $grantType
+     * @param string $scope
+     * @return string
+     */
+    public static function calculateAuthorizationId(string $serviceName, string $clientId, string $grantType, string $scope): string
+    {
+        return sha1($serviceName . $clientId . $grantType . $scope);
     }
 
     /**
@@ -103,6 +117,14 @@ class Authorization
     public function getClientId(): string
     {
         return $this->clientId;
+    }
+
+    /**
+     * @param string $clientSecret
+     */
+    public function setClientSecret(string $clientSecret): void
+    {
+        $this->clientSecret = $clientSecret;
     }
 
     /**

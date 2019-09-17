@@ -59,17 +59,12 @@ final class OAuthController extends ActionController
      * @param string $serviceType
      * @param string $serviceName
      * @param string $scope
-     * @throws OAuthClientException
-     * @throws \Doctrine\ORM\ORMException
-     * @throws \Doctrine\ORM\OptimisticLockException
-     * @throws \Doctrine\ORM\TransactionRequiredException
-     * @throws \Neos\Flow\Mvc\Exception\StopActionException
-     * @throws \Neos\Flow\Mvc\Exception\UnsupportedRequestTypeException
+     * @throws
      */
     public function finishAuthorizationAction(string $code, string $state, string $serviceType, string $serviceName, string $scope = ''): void
     {
         if (!isset($this->serviceTypes[$serviceType])) {
-            throw new OAuthClientException(sprintf('Failed finishing OAuth2 authorization because the given service type "%s" is unknown.', $serviceName), 1511193117184);
+            throw new OAuthClientException(sprintf('OAuth: Failed finishing OAuth2 authorization because the given service type "%s" is unknown.', $serviceName), 1511193117184);
         }
 
         $client = new $this->serviceTypes[$serviceType]($serviceName);
@@ -85,12 +80,7 @@ final class OAuthController extends ActionController
      * @param string $clientId
      * @param string $returnToUri
      * @param string $serviceName
-     * @throws OAuthClientException
-     * @throws \Doctrine\ORM\ORMException
-     * @throws \Doctrine\ORM\OptimisticLockException
-     * @throws \Doctrine\ORM\TransactionRequiredException
-     * @throws \Neos\Flow\Mvc\Exception\StopActionException
-     * @throws \Neos\Flow\Mvc\Exception\UnsupportedRequestTypeException
+     * @throws
      */
     public function refreshAuthorizationAction(string $clientId, string $returnToUri, string $serviceName): void
     {

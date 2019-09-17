@@ -34,7 +34,12 @@ use Psr\Http\Message\RequestInterface;
 
 abstract class OAuthClient
 {
-    public const STATE_QUERY_PARAMETER_NAME = 'flownative_oauth2_state';
+    /**
+     * Name of the HTTP query parameter used for passing around the authorization id
+     *
+     * @const string
+     */
+    public const AUTHORIZATION_ID_QUERY_PARAMETER_NAME = 'flownative_oauth2_authorization_id';
 
     /**
      * @var string
@@ -235,30 +240,44 @@ abstract class OAuthClient
      * @param string $clientId The client id, as provided by the OAuth server
      * @param string $clientSecret The client secret, provided by the OAuth server
      * @param Uri $returnToUri URI to return to when authorization is finished
-     * @param array $scopes Scopes to request for authorization
+     * @param string $scope Scope to request for authorization. Must be scope ids separated by space, e.g. "openid profile email"
      * @return Uri The URL the browser should redirect to, asking the user to authorize
      * @throws OAuthClientException
      */
-    public function startAuthorization(string $clientId, string $clientSecret, Uri $returnToUri, array $scopes = []): Uri
+    public function startAuthorization(string $clientId, string $clientSecret, Uri $returnToUri, string $scope): Uri
     {
+        $authorization = new Authorization($this->getServiceType(), $clientId, Authorization::GRANT_AUTHORIZATION_CODE, $scope);
+        $this->logger->info(sprintf('OAuth (%s): Starting authorization %s using client id "%s", a %s bytes long secret and scope "%s".', $this->getServiceType(), $authorization->getAuthorizationId(), $clientId, strlen($clientSecret), $scope));
+
+        try {
+            $oldAuthorization = $this->entityManager->find(Authorization::class, $authorization->getAuthorizationId());
+            if ($oldAuthorization !== null) {
+                $authorization = $oldAuthorization;
+            }
+            $authorization->setClientSecret($clientSecret);
+            $this->entityManager->persist($authorization);
+            $this->entityManager->flush();
+        } catch (ORMException $exception) {
+            throw new OAuthClientException(sprintf('OAuth (%s): Failed storing authorization in database: %s', $this->getServiceType(), $exception->getMessage()), 1568727133);
+        }
+
         $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
-        $authorizationUri = new Uri($oAuthProvider->getAuthorizationUrl(['scope' => implode(' ', $scopes)]));
-        $stateIdentifier = $oAuthProvider->getState();
+        $authorizationUri = new Uri($oAuthProvider->getAuthorizationUrl(['scope' => $scope]));
 
         try {
             $this->stateCache->set(
-                $stateIdentifier,
+                $oAuthProvider->getState(),
                 [
+                    'authorizationId' => $authorization->getAuthorizationId(),
                     'clientId' => $clientId,
                     'clientSecret' => $clientSecret,
                     'returnToUri' => (string)$returnToUri
                 ]
             );
         } catch (Exception $exception) {
-            throw new OAuthClientException(sprintf('Failed setting cache entry for OAuth authorization: %s', $exception->getMessage()), 1560178858);
+            throw new OAuthClientException(sprintf('OAuth (%s): Failed setting cache entry for authorization: %s', $this->getServiceType(), $exception->getMessage()), 1560178858);
         }
 
-        $this->logger->info(sprintf('OAuth (%s): Starting authorization %s using client id "%s" and a %s bytes long secret, returning to "%s".', $this->getServiceType(), $stateIdentifier, $clientId, strlen($clientSecret), $returnToUri), LogEnvironment::fromMethodName(__METHOD__));
         return $authorizationUri;
     }
 
@@ -266,7 +285,7 @@ abstract class OAuthClient
      * Finish an OAuth authorization with the Authorization Code flow
      *
      * @param string $code The authorization code given by the OAuth server
-     * @param string $stateIdentifier The authorization identifier, passed back by the OAuth server as the "state" parameter
+     * @param string $stateIdentifier The state identifier, passed back by the OAuth server as the "state" parameter
      * @param string $scope The scope for the granted authorization (syntax varies depending on the service)
      * @return Uri The URI to return to
      * @throws OAuthClientException
@@ -278,36 +297,38 @@ abstract class OAuthClient
     {
         $stateFromCache = $this->stateCache->get($stateIdentifier);
         if (empty($stateFromCache)) {
-            throw new OAuthClientException(sprintf('OAuth2: Finishing authorization failed because oAuth state %s could not be retrieved from the state cache.', $stateIdentifier), 1558956494);
+            throw new OAuthClientException(sprintf('OAuth: Finishing authorization failed because oAuth state %s could not be retrieved from the state cache.', $stateIdentifier), 1558956494);
         }
 
+        $authorizationId = $stateFromCache['authorizationId'];
         $clientId = $stateFromCache['clientId'];
         $clientSecret = $stateFromCache['clientSecret'];
         $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
 
+        $this->logger->info(sprintf('OAuth (%s): Finishing authorization for client "%s", authorization id "%s", using state %s.', $this->getServiceType(), $clientId, $authorizationId, $stateIdentifier));
         try {
-            $this->logger->info(sprintf('OAuth (%s): Finishing authorization for client "%s", state "%s", using a %s bytes long secret.', $this->getServiceType(), $clientId, $stateIdentifier, strlen($clientSecret)), LogEnvironment::fromMethodName(__METHOD__));
-
-            $oldOAuthToken = $this->entityManager->find(Authorization::class, ['authorizationId' => $stateIdentifier]);
-            if ($oldOAuthToken !== null) {
-                $this->entityManager->remove($oldOAuthToken);
-                $this->entityManager->flush();
-
-                $this->logger->info(sprintf('OAuth (%s): Removed old OAuth token "%s".', $this->getServiceType(), $stateIdentifier), LogEnvironment::fromMethodName(__METHOD__));
+            $authorization = $this->entityManager->find(Authorization::class, $authorizationId);
+            if (!$authorization instanceof Authorization) {
+                throw new OAuthClientException(sprintf('OAuth2 (%s): Finishing authorization failed because authorization %s could not be retrieved from the database.', $this->getServiceType(), $authorizationId), 1568710771);
             }
-            $accessToken = $oAuthProvider->getAccessToken('authorization_code', ['code' => $code]);
-            $authorization = $this->createNewAuthorization($clientId, $clientSecret, 'authorization_code', $accessToken, $scope);
 
-            $this->logger->info(sprintf('OAuth (%s): Persisted new OAuth token for authorization "%s" with expiry time %s.', $this->getServiceType(), $stateIdentifier, $accessToken->getExpires()), LogEnvironment::fromMethodName(__METHOD__));
+            $accessToken = $oAuthProvider->getAccessToken('authorization_code', ['code' => $code]);
+            $this->logger->info(sprintf('OAuth (%s): Persisting OAuth token for authorization "%s" with expiry time %s.', $this->getServiceType(), $authorizationId, $accessToken->getExpires()));
+
+            $authorization->setAccessToken($accessToken);
 
             $this->entityManager->persist($authorization);
             $this->entityManager->flush();
+
         } catch (IdentityProviderException $exception) {
             throw new OAuthClientException($exception->getMessage(), 1511187001671, $exception);
         }
 
         $returnToUri = new Uri($stateFromCache['returnToUri']);
-        return $returnToUri->withQuery(trim($returnToUri->getQuery() . '&' . self::STATE_QUERY_PARAMETER_NAME . '=' . $stateIdentifier, '&'));
+        $returnToUri = $returnToUri->withQuery(trim($returnToUri->getQuery() . '&' . self::AUTHORIZATION_ID_QUERY_PARAMETER_NAME . '=' . $authorizationId, '&'));
+
+        $this->logger->debug(sprintf('OAuth (%s): Finished authorization "%s", $returnToUri is %s.', $this->getServiceType(), $authorizationId, $returnToUri));
+        return $returnToUri;
     }
 
     /**

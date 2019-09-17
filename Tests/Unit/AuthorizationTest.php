@@ -48,7 +48,7 @@ class AuthorizationTest extends UnitTestCase
      */
     public function constructSetsAuthorizationIdentifier(string $expectedAuthorizationId, string $serviceName, string $clientId, string $clientSecret, string $grantType, string $scope): void
     {
-        $authorization = new Authorization($serviceName, $clientId, $clientSecret, $grantType, $scope);
+        $authorization = new Authorization($serviceName, $clientId, $grantType, $scope);
         self::assertSame($expectedAuthorizationId, $authorization->getAuthorizationId());
     }
 
@@ -59,7 +59,7 @@ class AuthorizationTest extends UnitTestCase
     {
         $accessToken = $this->createValidAccessToken();
 
-        $authorization = new Authorization('service', 'clientId', 'clientSecret', 'authorization_code', '');
+        $authorization = new Authorization('service', 'clientId',Authorization::GRANT_AUTHORIZATION_CODE, 'profile');
         $authorization->setAccessToken($accessToken);
         $retrievedAccessToken = $authorization->getAccessToken();
 
@@ -74,7 +74,7 @@ class AuthorizationTest extends UnitTestCase
     {
         $accessToken = $this->createValidAccessToken();
 
-        $authorization = new Authorization('service', 'clientId', 'clientSecret', 'authorization_code', '');
+        $authorization = new Authorization('service', 'clientId',  Authorization::GRANT_AUTHORIZATION_CODE, '');
         $authorization->setAccessToken($accessToken);
 
         $secondAccessToken = new AccessToken($authorization->getSerializedAccessToken());
@@ -88,11 +88,25 @@ class AuthorizationTest extends UnitTestCase
     {
         $accessToken = $this->createValidAccessToken();
 
-        $authorization = new Authorization('service', 'clientId', 'clientSecret', 'authorization_code', '');
+        $authorization = new Authorization('service', 'clientId', Authorization::GRANT_AUTHORIZATION_CODE, '');
         $authorization->setSerializedAccessToken($accessToken->jsonSerialize());
 
         $secondAccessToken = new AccessToken($authorization->getSerializedAccessToken());
         $this->assertEquals($accessToken, $secondAccessToken);
+    }
+
+    /**
+     * @test
+     */
+    public function calculateAuthorizationIdReturnsSha1(): void
+    {
+        $authorizationId = Authorization::calculateAuthorizationId(
+            'oidc_test',
+            'ac36cGG4d2Cef1DeuevA7T1u7V4WOUI14',
+            'authorization_code',
+            'oidc profile'
+        );
+        self::assertSame('21de19f789834af6edff3346e8d9449fcd0d4dae', $authorizationId);
     }
 
     /**
