@@ -4,7 +4,7 @@ namespace Flownative\OAuth2\Client;
 
 use Doctrine\Common\Persistence\ObjectManager as DoctrineObjectManager;
 use Doctrine\DBAL\LockMode;
-use Doctrine\ORM\EntityManager as DoctrineEntityManager;
+use Doctrine\ORM\EntityManagerInterface as DoctrineEntityManagerInterface;
 use Doctrine\ORM\OptimisticLockException;
 use Doctrine\ORM\ORMException;
 use Doctrine\ORM\TransactionRequiredException;
@@ -82,7 +82,7 @@ abstract class OAuthClient
     protected $session;
 
     /**
-     * @var DoctrineEntityManager
+     * @var DoctrineEntityManagerInterface
      */
     protected $entityManager;
 
@@ -107,10 +107,10 @@ abstract class OAuthClient
     }
 
     /**
-     * @param DoctrineObjectManager $entityManager
+     * @param DoctrineEntityManagerInterface $entityManager
      * @return void
      */
-    public function injectEntityManager(DoctrineObjectManager $entityManager): void
+    public function injectEntityManager(DoctrineEntityManagerInterface $entityManager): void
     {
         $this->entityManager = $entityManager;
     }

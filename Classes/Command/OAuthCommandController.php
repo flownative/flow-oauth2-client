@@ -1,8 +1,7 @@
 <?php
 namespace Flownative\OAuth2\Client\Command;
 
-use Doctrine\Common\Persistence\ObjectManager as DoctrineObjectManager;
-use Doctrine\ORM\EntityManager as DoctrineEntityManager;
+use Doctrine\ORM\EntityManagerInterface as DoctrineEntityManagerInterface;
 use Doctrine\ORM\OptimisticLockException;
 use Doctrine\ORM\ORMException;
 use Flownative\OAuth2\Client\Authorization;
@@ -12,15 +11,15 @@ use Neos\Flow\Persistence\Doctrine\Query;
 final class OAuthCommandController extends CommandController
 {
     /**
-     * @var DoctrineEntityManager
+     * @var DoctrineEntityManagerInterface
      */
     protected $entityManager;
 
     /**
-     * @param DoctrineObjectManager $entityManager
+     * @param DoctrineEntityManagerInterface $entityManager
      * @return void
      */
-    public function injectEntityManager(DoctrineObjectManager $entityManager): void
+    public function injectEntityManager(DoctrineEntityManagerInterface $entityManager): void
     {
         $this->entityManager = $entityManager;
     }
