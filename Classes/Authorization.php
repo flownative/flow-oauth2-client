@@ -26,6 +26,7 @@ use Neos\Flow\Annotations as Flow;
 class Authorization
 {
     public const GRANT_AUTHORIZATION_CODE = 'authorization_code';
+    public const GRANT_CLIENT_CREDENTIALS = 'client_credentials';
 
     /**
      * @ORM\Id
