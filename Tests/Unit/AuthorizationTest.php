@@ -101,10 +101,7 @@ class AuthorizationTest extends UnitTestCase
     public function calculateAuthorizationIdReturnsSha1(): void
     {
         $authorizationId = Authorization::calculateAuthorizationId(
-            'oidc_test',
-            'ac36cGG4d2Cef1DeuevA7T1u7V4WOUI14',
-            'authorization_code',
-            'oidc profile'
+            'oidc_test', 'ac36cGG4d2Cef1DeuevA7T1u7V4WOUI14', 'oidc profile', 'authorization_code'
         );
         self::assertSame('21de19f789834af6edff3346e8d9449fcd0d4dae', $authorizationId);
     }

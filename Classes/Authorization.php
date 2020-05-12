@@ -75,7 +75,7 @@ class Authorization
      */
     public function __construct(string $serviceName, string $clientId, string $grantType, string $scope)
     {
-        $this->authorizationId = self::calculateAuthorizationId($serviceName, $clientId, $grantType, $scope);
+        $this->authorizationId = self::calculateAuthorizationId($serviceName, $clientId, $scope, $grantType);
         $this->serviceName = $serviceName;
         $this->clientId = $clientId;
         $this->grantType = $grantType;
@@ -87,13 +87,13 @@ class Authorization
      *
      * @param string $serviceName
      * @param string $clientId
-     * @param string $grantType
      * @param string $scope
+     * @param string $grantType
      * @return string
      */
-    public static function calculateAuthorizationId(string $serviceName, string $clientId, string $grantType, string $scope): string
+    public static function calculateAuthorizationId(string $serviceName, string $clientId, string $scope, string $grantType): string
     {
-        return sha1($serviceName . $clientId . $grantType . $scope);
+        return sha1($serviceName . $clientId . $scope. $grantType);
     }
 
     /**
@@ -181,7 +181,7 @@ class Authorization
     /**
      * @return AccessToken
      */
-    public function getAccessToken(): ?AccessTokenInterface
+    public function getAccessToken(): ?AccessToken
     {
         return !empty($this->serializedAccessToken) ? new AccessToken($this->serializedAccessToken) : null;
     }

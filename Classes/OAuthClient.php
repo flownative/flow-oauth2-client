@@ -191,43 +191,41 @@ abstract class OAuthClient
     }
 
     /**
-     * Requests an access token using a specified grant and option set.
+     * Requests an access token using a specified grant type.
      *
-     * @param string $grant
-     * @param string $clientId
-     * @param string $clientSecret
-     * @param string $scope
+     * This method is usually used using the OAuth Client Credentials Flow for machine-to-machine applications.
+     * Therefore the grant type is usually Authorization::GRANT_CLIENT_CREDENTIALS. You need to specify the
+     * client identifier and client secret and may optionally specify a scope.
+     *
+     * @param string $serviceName
+     * @param string $clientId Client ID
+     * @param string $clientSecret Client Secret
+     * @param string $scope Scope which may consist of multiple identifiers, separated by comma
+     * @param string $grantType One of the Authorization::GRAND_* constants
      * @return void
      * @throws IdentityProviderException
      */
-    public function getAccessToken(string $grant, string $clientId, string $clientSecret, string $scope = ''): void
+    public function requestAccessToken(string $serviceName, string $clientId, string $clientSecret, string $scope, string $grantType): void
     {
-        $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
+        $authorizationId = Authorization::calculateAuthorizationId($serviceName, $clientId, $scope, $grantType);
+        $this->logger->info(sprintf('OAuth (%s): Retrieving access token using %s grant for client "%s" using a %s bytes long secret. (authorization id: %s)', $this->getServiceType(), $grantType, $clientId, strlen($clientSecret), $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
 
-        // FIXME
-        $authorizationId = 'fixme-authorization-id';
-
-        try {
-            $this->logger->info(sprintf('OAuth (%s): Retrieving access token using %s grant for client "%s" using a %s bytes long secret.', $this->getServiceType(), $grant, $clientId, strlen($clientSecret)), LogEnvironment::fromMethodName(__METHOD__));
-
-            $oldOAuthToken = $this->getAuthorization($authorizationId);
-            if ($oldOAuthToken !== null) {
-                $this->entityManager->remove($oldOAuthToken);
-                $this->entityManager->flush();
-
-                $this->logger->info(sprintf('OAuth (%s):  Removed old OAuth token for client "%s".', $this->getServiceType(), $clientId), LogEnvironment::fromMethodName(__METHOD__));
-            }
-
-            $accessToken = $oAuthProvider->getAccessToken($grant);
-            $authorization = $this->createNewAuthorization($clientId, $clientSecret, Authorization::GRANT_CLIENT_CREDENTIALS, $accessToken, $scope);
-
-            $this->logger->info(sprintf('OAuth (%s): Persisted new OAuth authorization %s for client "%s" with expiry time %s.', $this->getServiceType(), $authorizationId, $clientId, $accessToken->getExpires()), LogEnvironment::fromMethodName(__METHOD__));
-
-            $this->entityManager->persist($authorization);
+        $existingAuthorization = $this->getAuthorization($authorizationId);
+        if ($existingAuthorization !== null) {
+            $this->logger->debug(sprintf('OAuth (%s):  Found old OAuth token for client "%s". (authorization id: %s)', $this->getServiceType(), $clientId, $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
+            $this->entityManager->remove($existingAuthorization);
             $this->entityManager->flush();
-        } catch (IdentityProviderException $e) {
-            throw $e;
+
+            $this->logger->info(sprintf('OAuth (%s):  Removed old OAuth token for client "%s". (authorization id: %s)', $this->getServiceType(), $clientId, $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
         }
+
+        $accessToken = $this->createOAuthProvider($clientId, $clientSecret)->getAccessToken($grantType);
+        $authorization = $this->createNewAuthorization($serviceName, $clientId, $scope, $grantType, $accessToken);
+
+        $this->logger->info(sprintf('OAuth (%s): Persisted new OAuth authorization %s for client "%s" with expiry time %s. (authorization id: %s)', $this->getServiceType(), $authorizationId, $clientId, $accessToken->getExpires(), $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
+
+        $this->entityManager->persist($authorization);
+        $this->entityManager->flush();
     }
 
     /**
@@ -477,16 +475,16 @@ abstract class OAuthClient
     /**
      * Create a new OAuthToken instance
      *
+     * @param string $serviceName
      * @param string $clientId
-     * @param string $clientSecret
+     * @param string $scope
      * @param string $grantType
      * @param AccessTokenInterface $accessToken
-     * @param string $scope
      * @return Authorization
      */
-    protected function createNewAuthorization(string $clientId, string $clientSecret, string $grantType, AccessTokenInterface $accessToken, string $scope): Authorization
+    protected function createNewAuthorization(string $serviceName, string $clientId, string $scope, string $grantType, AccessTokenInterface $accessToken): Authorization
     {
-        $authorization = new Authorization($this->getServiceName(), $clientId, $grantType, $scope);
+        $authorization = new Authorization($serviceName, $clientId, $grantType, $scope);
         $authorization->setAccessToken($accessToken);
         return $authorization;
     }
