@@ -154,6 +154,14 @@ class Authorization
     }
 
     /**
+     * @param string $scope
+     */
+    public function setScope(string $scope): void
+    {
+        $this->scope = $scope;
+    }
+
+    /**
      * @return array
      */
     public function getSerializedAccessToken(): array

@@ -5,6 +5,7 @@ namespace Flownative\OAuth2\Client;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\ORMException;
 use GuzzleHttp\Client;
+use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Psr7\Uri;
 use League\OAuth2\Client\Provider\Exception\IdentityProviderException;
@@ -16,7 +17,7 @@ use Neos\Cache\Frontend\VariableFrontend;
 use Neos\Flow\Annotations as Flow;
 use Neos\Flow\Core\Bootstrap;
 use Neos\Flow\Http\HttpRequestHandlerInterface;
-use Neos\Flow\Log\Utility\LogEnvironment;
+use Neos\Flow\Http\Request;
 use Neos\Flow\Mvc\ActionRequest;
 use Neos\Flow\Mvc\Routing\Exception\MissingActionNameException;
 use Neos\Flow\Mvc\Routing\UriBuilder;
@@ -281,10 +282,11 @@ abstract class OAuthClient
      *
      * @param string $stateIdentifier The state identifier, passed back by the OAuth server as the "state" parameter
      * @param string $code The authorization code given by the OAuth server
+     * @param string $scope The scope granted by the OAuth server
      * @return UriInterface The URI to return to
      * @throws OAuthClientException
      */
-    public function finishAuthorization(string $stateIdentifier, string $code): UriInterface
+    public function finishAuthorization(string $stateIdentifier, string $code, string $scope): UriInterface
     {
         $stateFromCache = $this->stateCache->get($stateIdentifier);
         if (empty($stateFromCache)) {
@@ -307,6 +309,7 @@ abstract class OAuthClient
             $this->logger->info(sprintf('OAuth (%s): Persisting OAuth token for authorization "%s" with expiry time %s.', $this->getServiceType(), $authorizationId, $accessToken->getExpires()));
 
             $authorization->setAccessToken($accessToken);
+            $authorization->setScope($scope);
 
             $this->entityManager->persist($authorization);
             $this->entityManager->flush();
@@ -368,87 +371,60 @@ abstract class OAuthClient
     }
 
     /**
-     * Returns a prepared request which provides the needed header for OAuth authentication
+     * Returns a prepared request to an OAuth 2.0 service provider using Bearer token authentication
      *
+     * @param Authorization $authorization
      * @param string $relativeUri A relative URI of the web server, prepended by the base URI
      * @param string $method The HTTP method, for example "GET" or "POST"
      * @param array $bodyFields Associative array of body fields to send (optional)
      * @return RequestInterface
-     * @throws IdentityProviderException
      * @throws OAuthClientException
      */
-    public function getAuthenticatedRequest(string $relativeUri, string $method = 'GET', array $bodyFields = []): RequestInterface
+    public function getAuthenticatedRequest(Authorization $authorization, string $relativeUri, string $method = 'GET', array $bodyFields = []): RequestInterface
     {
-        $oAuthToken = $this->getAuthorization();
-        if (!$oAuthToken instanceof Authorization) {
-            throw new OAuthClientException('No OAuthToken found.', 1505321014388);
+        $accessToken = $authorization->getAccessToken();
+        if ($accessToken === null) {
+            throw new OAuthClientException(sprintf($this->getServiceType() . 'Failed getting an authenticated request for client ID "%s" because the authorization contained no access token', $authorization->getClientId()), 1589300319);
         }
 
-        $oAuthProvider = $this->createOAuthProvider($oAuthToken->getClientId(), $oAuthToken->getClientSecret());
-
-        if ($oAuthToken->expires < new \DateTimeImmutable()) {
-            switch ($oAuthToken->getGrantType()) {
-                case Authorization::GRANT_AUTHORIZATION_CODE:
-                    $this->refreshAuthorization('fixme-authorization-id', $oAuthToken->getClientId(), 'fixme-return-to-uri');
-                    $oAuthToken = $this->getAuthorization();
-                break;
-                case Authorization::GRANT_CLIENT_CREDENTIALS:
-                    try {
-                        $newAccessToken = $oAuthProvider->getAccessToken(Authorization::GRANT_CLIENT_CREDENTIALS);
-                    } catch (IdentityProviderException $exception) {
-                        $this->logger->error(sprintf($this->getServiceType() . 'Failed retrieving new OAuth access token for client "%s" (client credentials grant): %s', $oAuthToken->clientId, $exception->getMessage()));
-                        throw $exception;
-                    }
-
-                    $oAuthToken->accessToken = $newAccessToken->getToken();
-                    $oAuthToken->expires = ($newAccessToken->getExpires() ? \DateTimeImmutable::createFromFormat('U', $newAccessToken->getExpires()) : null);
-
-                    $this->logger->info(sprintf('OAuth (%s): Persisted new OAuth token for client "%s" with expiry time %s.', $this->getServiceType(), $oAuthToken->clientId, $newAccessToken->getExpires()));
-
-                    $this->entityManager->persist($oAuthToken);
-                    $this->entityManager->flush();
-                break;
-            }
-        }
-
-        $body = ($bodyFields !== [] ? \GuzzleHttp\json_encode($bodyFields) : '');
-
+        $oAuthProvider = $this->createOAuthProvider($authorization->getClientId(), $authorization->getClientSecret());
         return $oAuthProvider->getAuthenticatedRequest(
             $method,
             $this->getBaseUri() . $relativeUri,
-            $oAuthToken->getAccessToken(),
+            $authorization->getAccessToken(),
             [
                 'headers' => [
                     'Content-Type' => 'application/json'
                 ],
-                'body' => $body
+                'body' => ($bodyFields !== [] ? \GuzzleHttp\json_encode($bodyFields) : '')
             ]
         );
     }
 
     /**
+     * Sends an HTTP request to an OAuth 2.0 service provider using Bearer token authentication
+     *
+     * @param Authorization $authorization
      * @param string $relativeUri
      * @param string $method
      * @param array $bodyFields
      * @return Response
+     * @throws GuzzleException
+     * @throws OAuthClientException
      */
-    public function sendAuthenticatedRequest(string $relativeUri, string $method = 'GET', array $bodyFields = []): Response
+    public function sendAuthenticatedRequest(Authorization $authorization, string $relativeUri, string $method = 'GET', array $bodyFields = []): Response
     {
         if ($this->httpClient === null) {
-            $this->httpClient = new Client();
+            $this->httpClient = new Client(['allow_redirects' => false]);
         }
-        // FIXME
-#        return $this->httpClient->send($this->getAuthenticatedRequest($relativeUri, $method, $bodyFields));
+        return $this->httpClient->send($this->getAuthenticatedRequest($authorization, $relativeUri, $method, $bodyFields));
     }
 
     /**
      * @return string
-     * @throws
-     * FIXME
      */
     public function renderFinishAuthorizationUri(): string
     {
-        return '';
         $currentRequestHandler = $this->bootstrap->getActiveRequestHandler();
         if ($currentRequestHandler instanceof HttpRequestHandlerInterface) {
             $httpRequest = $currentRequestHandler->getHttpRequest();

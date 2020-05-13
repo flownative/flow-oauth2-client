@@ -6,6 +6,8 @@ use Flownative\OAuth2\Client\OAuthClientException;
 use Neos\Flow\Annotations\CompileStatic;
 use Neos\Flow\Http\Uri;
 use Neos\Flow\Mvc\Controller\ActionController;
+use Neos\Flow\Mvc\Exception\StopActionException;
+use Neos\Flow\Mvc\Exception\UnsupportedRequestTypeException;
 use Neos\Flow\ObjectManagement\ObjectManagerInterface;
 use Neos\Flow\Reflection\ReflectionService;
 
@@ -32,19 +34,21 @@ final class OAuthController extends ActionController
      * @param Uri $returnToUri
      * @param string $serviceType
      * @param string $serviceName
-     * @throws
-     * FIXME: Re-Implement
+     * @param string $scope
+     * @throws OAuthClientException
+     * @throws StopActionException
+     * @throws UnsupportedRequestTypeException
      */
-    public function startAuthorizationAction(string $clientId, string $clientSecret, Uri $returnToUri, string $serviceType, string $serviceName): void
+    public function startAuthorizationAction(string $clientId, string $clientSecret, Uri $returnToUri, string $serviceType, string $serviceName, string $scope): void
     {
-//        if (!isset($this->serviceTypes[$serviceType])) {
-//            throw new OAuthClientException(sprintf('Failed starting OAuth2 authorization, because the given service type "%s" is unknown.', $serviceType), 1511187873921);
-//        }
-//
-//        $client = new $this->serviceTypes[$serviceName]($serviceName);
-//        assert($client instanceof OAuthClient);
-//        $authorizeUri = $client->startAuthorization($clientId, $clientSecret, $returnToUri);
-//        $this->redirectToUri($authorizeUri);
+        if (!isset($this->serviceTypes[$serviceType])) {
+            throw new OAuthClientException(sprintf('Failed starting OAuth2 authorization, because the given service type "%s" is unknown.', $serviceType), 1511187873921);
+        }
+
+        $client = new $this->serviceTypes[$serviceName]($serviceName);
+        assert($client instanceof OAuthClient);
+        $authorizeUri = $client->startAuthorization($clientId, $clientSecret, $returnToUri, $scope);
+        $this->redirectToUri($authorizeUri);
     }
 
     /**
@@ -58,9 +62,12 @@ final class OAuthController extends ActionController
      * @param string $serviceName The OAuth service name, ie. the identifier of the concrete configuration of the given OAuth service implementation
      * @param string $state The state by which the OAuth client can find the authorization in progress
      * @param string $code The code issued by the OAuth server
-     * @throws
+     * @param string $scope The scope issued by the OAuth server
+     * @throws OAuthClientException
+     * @throws StopActionException
+     * @throws UnsupportedRequestTypeException
      */
-    public function finishAuthorizationAction(string $serviceType, string $serviceName, string $state, string $code): void
+    public function finishAuthorizationAction(string $serviceType, string $serviceName, string $state, string $code, string $scope = ''): void
     {
         if (!isset($this->serviceTypes[$serviceType])) {
             throw new OAuthClientException(sprintf('OAuth: Failed finishing OAuth2 authorization because the given service type "%s" is unknown.', $serviceName), 1511193117184);
@@ -69,7 +76,7 @@ final class OAuthController extends ActionController
         if (!$client instanceof OAuthClient) {
             throw new OAuthClientException(sprintf('OAuth: Failed finishing authorization because of unexpected class type: "%s" must implement %s.', get_class($client), OAuthClient::class), 1568735389);
         }
-        $this->redirectToUri($client->finishAuthorization($state, $code));
+        $this->redirectToUri($client->finishAuthorization($state, $code, $scope));
     }
 
     /**
