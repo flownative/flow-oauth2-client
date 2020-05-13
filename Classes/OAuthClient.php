@@ -214,11 +214,10 @@ abstract class OAuthClient
 
         $existingAuthorization = $this->getAuthorization($authorizationId);
         if ($existingAuthorization !== null) {
-            $this->logger->debug(sprintf('OAuth (%s):  Found old OAuth token for client "%s". (authorization id: %s)', $this->getServiceType(), $clientId, $authorizationId));
             $this->entityManager->remove($existingAuthorization);
             $this->entityManager->flush();
 
-            $this->logger->info(sprintf('OAuth (%s):  Removed old OAuth token for client "%s". (authorization id: %s)', $this->getServiceType(), $clientId, $authorizationId));
+            $this->logger->info(sprintf('OAuth (%s): Removed old OAuth token for client "%s". (authorization id: %s)', $this->getServiceType(), $clientId, $authorizationId));
         }
 
         $accessToken = $this->createOAuthProvider($clientId, $clientSecret)->getAccessToken($grantType, $additionalParameters);
