@@ -6,6 +6,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\ORMException;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
+use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Psr7\Uri;
 use League\OAuth2\Client\Provider\Exception\IdentityProviderException;
@@ -17,13 +18,13 @@ use Neos\Cache\Frontend\VariableFrontend;
 use Neos\Flow\Annotations as Flow;
 use Neos\Flow\Core\Bootstrap;
 use Neos\Flow\Http\HttpRequestHandlerInterface;
-use Neos\Flow\Http\Request;
 use Neos\Flow\Mvc\ActionRequest;
 use Neos\Flow\Mvc\Routing\Exception\MissingActionNameException;
 use Neos\Flow\Mvc\Routing\UriBuilder;
 use Neos\Flow\Persistence\Doctrine\Query;
 use Neos\Flow\Persistence\Exception\InvalidQueryException;
 use Neos\Flow\Session\SessionInterface;
+use Neos\Http\Factories\ServerRequestFactory;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\UriInterface;
 use Psr\Log\LoggerInterface;
@@ -56,6 +57,12 @@ abstract class OAuthClient
      * @var Bootstrap
      */
     protected $bootstrap;
+
+    /**
+     * @Flow\Inject
+     * @var ServerRequestFactory
+     */
+    protected $serverRequestFactory;
 
     /**
      * @Flow\InjectConfiguration(path="http.baseUri", package="Neos.Flow")
@@ -426,13 +433,12 @@ abstract class OAuthClient
     {
         $currentRequestHandler = $this->bootstrap->getActiveRequestHandler();
         if ($currentRequestHandler instanceof HttpRequestHandlerInterface) {
-            $httpRequest = $currentRequestHandler->getHttpRequest();
+            $httpRequest = $currentRequestHandler->getComponentContext()->getHttpRequest();
         } else {
             putenv('FLOW_REWRITEURLS=1');
-            $httpRequest = Request::createFromEnvironment();
-            $httpRequest->setBaseUri(new Uri($this->flowBaseUriSetting));
+            $httpRequest = $this->serverRequestFactory->createServerRequest('GET', new Uri($this->flowBaseUriSetting));
         }
-        $actionRequest = new ActionRequest($httpRequest);
+        $actionRequest = ActionRequest::fromHttpRequest($httpRequest);
 
         $this->uriBuilder->reset();
         $this->uriBuilder->setRequest($actionRequest);
