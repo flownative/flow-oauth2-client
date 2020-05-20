@@ -266,6 +266,10 @@ abstract class OAuthClient
         $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
         $authorizationUri = new Uri($oAuthProvider->getAuthorizationUrl(['scope' => $scope]));
 
+        if ($clientId === $clientSecret) {
+            $this->logger->error(sprintf('OAuth (%s): Client ID and Client secret are the same! Please check your configuration.', $this->getServiceType()));
+        }
+
         try {
             $this->stateCache->set(
                 $oAuthProvider->getState(),
@@ -311,6 +315,7 @@ abstract class OAuthClient
                 throw new OAuthClientException(sprintf('OAuth2 (%s): Finishing authorization failed because authorization %s could not be retrieved from the database.', $this->getServiceType(), $authorizationId), 1568710771);
             }
 
+            $this->logger->debug(sprintf('OAuth (%s): Retrieving an OAuth access token for authorization "%s" in exchange for the code %s', $this->getServiceType(), $authorizationId, str_repeat('*', strlen($code) - 3) . substr($code, -3, 3)));
             $accessToken = $oAuthProvider->getAccessToken(Authorization::GRANT_AUTHORIZATION_CODE, ['code' => $code]);
             $this->logger->info(sprintf('OAuth (%s): Persisting OAuth token for authorization "%s" with expiry time %s.', $this->getServiceType(), $authorizationId, $accessToken->getExpires()));
 
