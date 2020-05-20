@@ -320,6 +320,9 @@ abstract class OAuthClient
             $this->logger->info(sprintf('OAuth (%s): Persisting OAuth token for authorization "%s" with expiry time %s.', $this->getServiceType(), $authorizationId, $accessToken->getExpires()));
 
             $authorization->setAccessToken($accessToken);
+
+            $accessTokenValues = $accessToken->getValues();
+            $scope = $accessTokenValues['scope'] ?? $scope;
             $authorization->setScope($scope);
 
             $this->entityManager->persist($authorization);
