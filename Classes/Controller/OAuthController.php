@@ -45,7 +45,7 @@ final class OAuthController extends ActionController
             throw new OAuthClientException(sprintf('Failed starting OAuth2 authorization, because the given service type "%s" is unknown.', $serviceType), 1511187873921);
         }
 
-        $client = new $this->serviceTypes[$serviceName]($serviceName);
+        $client = new $this->serviceTypes[$serviceType]($serviceName);
         assert($client instanceof OAuthClient);
         $authorizeUri = $client->startAuthorization($clientId, $clientSecret, $returnToUri, $scope);
         $this->redirectToUri($authorizeUri);
