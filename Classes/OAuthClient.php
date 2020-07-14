@@ -485,7 +485,7 @@ abstract class OAuthClient
      * @param string $clientSecret
      * @return GenericProvider
      */
-    protected function createOAuthProvider(string $clientId, string $clientSecret): GenericProvider
+    protected function createOAuthProvider(string $clientId, string $clientSecret)
     {
         return new GenericProvider([
             'clientId' => $clientId,
