@@ -62,6 +62,12 @@ class Authorization
     protected $scope;
 
     /**
+     * @var \DateTimeImmutable
+     * @ORM\Column(nullable = true)
+     */
+    protected $expires;
+
+    /**
      * @var array
      * @ORM\Column(type="json_array", nullable = true)
      */
@@ -93,7 +99,7 @@ class Authorization
      */
     public static function calculateAuthorizationId(string $serviceName, string $clientId, string $scope, string $grantType): string
     {
-        return sha1($serviceName . $clientId . $scope. $grantType);
+        return sha1($serviceName . $clientId . $scope . $grantType);
     }
 
     /**
@@ -192,5 +198,21 @@ class Authorization
     public function getAccessToken(): ?AccessToken
     {
         return !empty($this->serializedAccessToken) ? new AccessToken($this->serializedAccessToken) : null;
+    }
+
+    /**
+     * @return \DateTimeImmutable
+     */
+    public function getExpires(): \DateTimeImmutable
+    {
+        return $this->expires;
+    }
+
+    /**
+     * @param \DateTimeImmutable $expires
+     */
+    public function setExpires(\DateTimeImmutable $expires): void
+    {
+        $this->expires = $expires;
     }
 }
