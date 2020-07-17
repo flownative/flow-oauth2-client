@@ -360,6 +360,9 @@ abstract class OAuthClient
 
         try {
             $accessToken = $oAuthProvider->getAccessToken('refresh_token', ['refresh_token' => $authorization->getAccessToken()->getRefreshToken()]);
+            $serializedAccessToken = $accessToken->jsonSerialize();
+            $serializedAccessToken['refresh_token'] = $authorization->getAccessToken()->getRefreshToken();
+            $authorization->setSerializedAccessToken($serializedAccessToken);
             $authorization->accessToken = $accessToken->getToken();
             $authorization->expires = ($accessToken->getExpires() ? \DateTimeImmutable::createFromFormat('U', $accessToken->getExpires()) : null);
 
