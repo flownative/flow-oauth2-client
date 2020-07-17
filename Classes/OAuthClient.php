@@ -356,14 +356,14 @@ abstract class OAuthClient
         }
         $oAuthProvider = $this->createOAuthProvider($clientId, $authorization->getClientSecret());
 
-        $this->logger->info(sprintf('OAuth (%s): Refreshing authorization %s for client "%s" using a %s bytes long secret and refresh token "%s".', $this->getServiceType(), $authorizationId, $clientId, strlen($authorization->getClientSecret()), $authorization->refreshToken));
+        $this->logger->info(sprintf('OAuth (%s): Refreshing authorization %s for client "%s" using a %s bytes long secret and refresh token "%s".', $this->getServiceType(), $authorizationId, $clientId, strlen($authorization->getClientSecret()), $authorization->getAccessToken()->getRefreshToken()));
 
         try {
-            $accessToken = $oAuthProvider->getAccessToken('refresh_token', ['refresh_token' => $authorization->refreshToken]);
+            $accessToken = $oAuthProvider->getAccessToken('refresh_token', ['refresh_token' => $authorization->getAccessToken()->getRefreshToken()]);
             $authorization->accessToken = $accessToken->getToken();
             $authorization->expires = ($accessToken->getExpires() ? \DateTimeImmutable::createFromFormat('U', $accessToken->getExpires()) : null);
 
-            $this->logger->debug(sprintf($this->getServiceType() . ': New access token is "%s", refresh token is "%s".', $authorization->accessToken, $authorization->refreshToken));
+            $this->logger->debug(sprintf($this->getServiceType() . ': New access token is "%s", refresh token is "%s".', $authorization->accessToken, $accessToken->getRefreshToken()));
 
             $this->entityManager->persist($authorization);
             $this->entityManager->flush();
