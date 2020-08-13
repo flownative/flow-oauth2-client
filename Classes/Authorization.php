@@ -14,9 +14,11 @@ namespace Flownative\OAuth2\Client;
  */
 
 use Doctrine\ORM\Mapping as ORM;
+use Exception;
 use League\OAuth2\Client\Token\AccessToken;
 use League\OAuth2\Client\Token\AccessTokenInterface;
 use Neos\Flow\Annotations as Flow;
+use Ramsey\Uuid\Uuid;
 
 /**
  * An OAuth2 Authorization
@@ -68,14 +70,15 @@ class Authorization
     protected $serializedAccessToken;
 
     /**
+     * @param string $authorizationId
      * @param string $serviceName
      * @param string $clientId
      * @param string $grantType
      * @param string $scope
      */
-    public function __construct(string $serviceName, string $clientId, string $grantType, string $scope)
+    public function __construct(string $authorizationId, string $serviceName, string $clientId, string $grantType, string $scope)
     {
-        $this->authorizationId = self::calculateAuthorizationId($serviceName, $clientId, $scope, $grantType);
+        $this->authorizationId = $authorizationId;
         $this->serviceName = $serviceName;
         $this->clientId = $clientId;
         $this->grantType = $grantType;
@@ -87,13 +90,30 @@ class Authorization
      *
      * @param string $serviceName
      * @param string $clientId
+     * @return string
+     * @throws OAuthClientException
+     */
+    public static function generateAuthorizationIdForAuthorizationCodeGrant(string $serviceName, string $clientId): string
+    {
+        try {
+            return $serviceName . '-' . $clientId . '-' . Uuid::uuid4()->toString();
+        } catch (Exception $e) {
+            throw new OAuthClientException(sprintf('Failed generating authorization id for %s %s', $serviceName, $clientId), 1597311416, $e);
+        }
+    }
+
+    /**
+     * Calculate an authorization identifier (for this model) from the given parameters.
+     *
+     * @param string $serviceName
+     * @param string $clientId
+     * @param string $clientSecret
      * @param string $scope
-     * @param string $grantType
      * @return string
      */
-    public static function calculateAuthorizationId(string $serviceName, string $clientId, string $scope, string $grantType): string
+    public static function generateAuthorizationIdForClientCredentialsGrant(string $serviceName, string $clientId, string $clientSecret, string $scope): string
     {
-        return sha1($serviceName . $clientId . $scope. $grantType);
+        return hash('sha512', $serviceName . $clientId . $clientSecret . $scope . self::GRANT_CLIENT_CREDENTIALS);
     }
 
     /**
