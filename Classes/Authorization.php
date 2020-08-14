@@ -88,15 +88,16 @@ class Authorization
     /**
      * Calculate an authorization identifier (for this model) from the given parameters.
      *
+     * @param string $serviceType
      * @param string $serviceName
      * @param string $clientId
      * @return string
      * @throws OAuthClientException
      */
-    public static function generateAuthorizationIdForAuthorizationCodeGrant(string $serviceName, string $clientId): string
+    public static function generateAuthorizationIdForAuthorizationCodeGrant(string $serviceType, string $serviceName, string $clientId): string
     {
         try {
-            return $serviceName . '-' . $clientId . '-' . Uuid::uuid4()->toString();
+            return $serviceType . '-' . $serviceName . '-' . Uuid::uuid4()->toString();
         } catch (Exception $e) {
             throw new OAuthClientException(sprintf('Failed generating authorization id for %s %s', $serviceName, $clientId), 1597311416, $e);
         }

@@ -39,7 +39,7 @@ abstract class OAuthClient
      *
      * @const string
      */
-    public const AUTHORIZATION_ID_QUERY_PARAMETER_NAME = 'flownative_oauth2_authorization_id';
+    public const AUTHORIZATION_ID_QUERY_PARAMETER_NAME_PREFIX = 'flownative_oauth2_authorization_id';
 
     /**
      * @var string
@@ -124,14 +124,14 @@ abstract class OAuthClient
     /**
      * Returns the service type, i.e. a specific implementation of this client to use
      *
-     * @return string For example, "FlownativeBeach", "oidc", ...
+     * @return string For example, "Github", "oidc", ...
      */
     abstract public function getServiceType(): string;
 
     /**
      * Returns the service name, i.e. something like an instance name of the concrete implementation of this client
      *
-     * @return string For example, "Github", "MySpecialService", ...
+     * @return string For example, "SpecificGithubConnection", "MySpecialService", ...
      */
     public function getServiceName(): string
     {
@@ -199,6 +199,18 @@ abstract class OAuthClient
     }
 
     /**
+     * Generates the URL query parameter name which is used for passing the authorization id of a
+     * finishing authorization to Flow (via the "Return URL").
+     *
+     * @param string $serviceType "Class" of the of the service, for example, "Github", "oidc", ...
+     * @return string
+     */
+    public static function generateAuthorizationIdQueryParameterName(string $serviceType): string
+    {
+        return self::AUTHORIZATION_ID_QUERY_PARAMETER_NAME_PREFIX . '_' . $serviceType;
+    }
+
+    /**
      * Requests an access token.
      *
      * This method is used using the OAuth Client Credentials Flow for machine-to-machine applications.
@@ -248,7 +260,7 @@ abstract class OAuthClient
      */
     public function startAuthorization(string $clientId, string $clientSecret, UriInterface $returnToUri, string $scope): UriInterface
     {
-        $authorizationId = Authorization::generateAuthorizationIdForAuthorizationCodeGrant($this->getServiceName(), $clientId);
+        $authorizationId = Authorization::generateAuthorizationIdForAuthorizationCodeGrant($this->getServiceType(), $this->getServiceName(), $clientId);
         $authorization = new Authorization($authorizationId, $this->getServiceType(), $clientId, Authorization::GRANT_AUTHORIZATION_CODE, $scope);
         $this->logger->info(sprintf('OAuth (%s): Starting authorization %s using client id "%s", a %s bytes long secret and scope "%s".', $this->getServiceType(), $authorization->getAuthorizationId(), $clientId, strlen($clientSecret), $scope));
 
@@ -338,7 +350,7 @@ abstract class OAuthClient
         }
 
         $returnToUri = new Uri($stateFromCache['returnToUri']);
-        $returnToUri = $returnToUri->withQuery(trim($returnToUri->getQuery() . '&' . self::AUTHORIZATION_ID_QUERY_PARAMETER_NAME . '=' . $authorizationId, '&'));
+        $returnToUri = $returnToUri->withQuery(trim($returnToUri->getQuery() . '&' . self::generateAuthorizationIdQueryParameterName($this->getServiceType()) . '=' . $authorizationId, '&'));
 
         $this->logger->debug(sprintf('OAuth (%s): Finished authorization "%s", $returnToUri is %s.', $this->getServiceType(), $authorizationId, $returnToUri));
         return $returnToUri;
