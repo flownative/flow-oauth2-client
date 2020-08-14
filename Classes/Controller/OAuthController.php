@@ -3,8 +3,8 @@ namespace Flownative\OAuth2\Client\Controller;
 
 use Flownative\OAuth2\Client\OAuthClient;
 use Flownative\OAuth2\Client\OAuthClientException;
+use GuzzleHttp\Psr7\Uri;
 use Neos\Flow\Annotations\CompileStatic;
-use Neos\Flow\Http\Uri;
 use Neos\Flow\Mvc\Controller\ActionController;
 use Neos\Flow\Mvc\Exception\StopActionException;
 use Neos\Flow\Mvc\Exception\UnsupportedRequestTypeException;
