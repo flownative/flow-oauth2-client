@@ -17,6 +17,7 @@ use Doctrine\ORM\Mapping as ORM;
 use League\OAuth2\Client\Token\AccessToken;
 use League\OAuth2\Client\Token\AccessTokenInterface;
 use Neos\Flow\Annotations as Flow;
+use Ramsey\Uuid\Uuid;
 
 /**
  * An OAuth2 Authorization
@@ -71,6 +72,7 @@ class Authorization
      * @param string $clientId
      * @param string $grantType
      * @param string $scope
+     * @throws OAuthClientException
      */
     public function __construct(string $serviceName, string $clientId, string $grantType, string $scope)
     {
@@ -89,9 +91,19 @@ class Authorization
      * @param string $grantType
      * @param string $scope
      * @return string
+     * @throws OAuthClientException
      */
     public static function calculateAuthorizationId(string $serviceName, string $clientId, string $grantType, string $scope): string
     {
+        // Hotfix: An authorization using Authorization Code Flow must not be deterministic.
+        //         This is properly implemented and solved in the 2.x branch of this package
+        if ($scope === self::GRANT_AUTHORIZATION_CODE) {
+            try {
+                return $serviceName . '-' . $clientId . '-' . Uuid::uuid4()->toString();
+            } catch (\Exception $e) {
+                throw new OAuthClientException(sprintf('Failed generating authorization id for %s %s', $serviceName, $clientId), 1597311416, $e);
+            }
+        }
         return sha1($serviceName . $clientId . $grantType . $scope);
     }
 
