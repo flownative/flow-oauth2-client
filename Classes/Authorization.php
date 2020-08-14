@@ -97,7 +97,7 @@ class Authorization
     {
         // Hotfix: An authorization using Authorization Code Flow must not be deterministic.
         //         This is properly implemented and solved in the 2.x branch of this package
-        if ($scope === self::GRANT_AUTHORIZATION_CODE) {
+        if ($grantType === self::GRANT_AUTHORIZATION_CODE) {
             try {
                 return $serviceName . '-' . $clientId . '-' . Uuid::uuid4()->toString();
             } catch (\Exception $e) {
