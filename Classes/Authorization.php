@@ -15,6 +15,7 @@ namespace Flownative\OAuth2\Client;
 
 use Doctrine\ORM\Mapping as ORM;
 use Exception;
+use JsonException;
 use League\OAuth2\Client\Token\AccessToken;
 use League\OAuth2\Client\Token\AccessTokenInterface;
 use Neos\Flow\Annotations as Flow;
@@ -64,8 +65,8 @@ class Authorization
     protected $scope;
 
     /**
-     * @var array
-     * @ORM\Column(type="json_array", nullable = true)
+     * @var string
+     * @ORM\Column(nullable = true, type = "text")
      */
     protected $serializedAccessToken;
 
@@ -98,9 +99,11 @@ class Authorization
     {
         try {
             return $serviceType . '-' . $serviceName . '-' . Uuid::uuid4()->toString();
+        // @codeCoverageIgnoreStart
         } catch (Exception $e) {
             throw new OAuthClientException(sprintf('Failed generating authorization id for %s %s', $serviceName, $clientId), 1597311416, $e);
         }
+        // @codeCoverageIgnoreEnd
     }
 
     /**
@@ -183,17 +186,17 @@ class Authorization
     }
 
     /**
-     * @return array
+     * @return string
      */
-    public function getSerializedAccessToken(): array
+    public function getSerializedAccessToken(): string
     {
-        return $this->serializedAccessToken ?? [];
+        return $this->serializedAccessToken ?? '';
     }
 
     /**
-     * @param array $serializedAccessToken
+     * @param string $serializedAccessToken
      */
-    public function setSerializedAccessToken(array $serializedAccessToken): void
+    public function setSerializedAccessToken(string $serializedAccessToken): void
     {
         $this->serializedAccessToken = $serializedAccessToken;
     }
@@ -201,10 +204,11 @@ class Authorization
     /**
      * @param AccessTokenInterface $accessToken
      * @return void
+     * @throws JsonException
      */
     public function setAccessToken(AccessTokenInterface $accessToken): void
     {
-        $this->serializedAccessToken = $accessToken->jsonSerialize();
+        $this->serializedAccessToken = json_encode($accessToken, JSON_THROW_ON_ERROR, 512);
     }
 
     /**
@@ -212,6 +216,13 @@ class Authorization
      */
     public function getAccessToken(): ?AccessToken
     {
-        return !empty($this->serializedAccessToken) ? new AccessToken($this->serializedAccessToken) : null;
+        try {
+            if (!empty($this->serializedAccessToken)) {
+                $unserializedAccessToken = json_decode($this->serializedAccessToken, true, 512, JSON_THROW_ON_ERROR);
+                return new AccessToken($unserializedAccessToken);
+            }
+        } catch (JsonException $e) {
+        }
+        return null;
     }
 }
