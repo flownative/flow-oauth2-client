@@ -50,12 +50,6 @@ class Authorization
 
     /**
      * @var string
-     * @ORM\Column(nullable = true, length=5000)
-     */
-    protected $clientSecret;
-
-    /**
-     * @var string
      */
     protected $grantType;
 
@@ -145,22 +139,6 @@ class Authorization
     }
 
     /**
-     * @param string $clientSecret
-     */
-    public function setClientSecret(string $clientSecret): void
-    {
-        $this->clientSecret = $clientSecret;
-    }
-
-    /**
-     * @return string
-     */
-    public function getClientSecret(): string
-    {
-        return $this->clientSecret;
-    }
-
-    /**
      * @return string
      */
     public function getGrantType(): string
@@ -204,11 +182,17 @@ class Authorization
     /**
      * @param AccessTokenInterface $accessToken
      * @return void
-     * @throws JsonException
+     * @throws \InvalidArgumentException
      */
     public function setAccessToken(AccessTokenInterface $accessToken): void
     {
-        $this->serializedAccessToken = json_encode($accessToken, JSON_THROW_ON_ERROR, 512);
+        try {
+            $this->serializedAccessToken = json_encode($accessToken, JSON_THROW_ON_ERROR, 512);
+            // @codeCoverageIgnoreStart
+        } catch (JsonException $e) {
+            throw new \InvalidArgumentException('Failed serializing the given access token', 1602515717);
+            // @codeCoverageIgnoreEnd
+        }
     }
 
     /**

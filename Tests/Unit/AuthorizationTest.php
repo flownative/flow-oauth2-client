@@ -14,7 +14,6 @@ namespace Flownative\OAuth2\Client;
  */
 
 use Exception;
-use JsonException;
 use League\OAuth2\Client\Token\AccessToken;
 use Neos\Flow\Tests\UnitTestCase;
 use Neos\Flow\Utility\Algorithms;
@@ -58,7 +57,6 @@ class AuthorizationTest extends UnitTestCase
 
     /**
      * @test
-     * @throws JsonException
      * @throws Exception
      */
     public function getAccessTokenReturnsClonedObject(): void
@@ -75,7 +73,6 @@ class AuthorizationTest extends UnitTestCase
 
     /**
      * @test
-     * @throws JsonException
      * @throws Exception
      */
     public function getSerializedAccessTokenReturnsCorrectJsonString(): void
@@ -91,7 +88,6 @@ class AuthorizationTest extends UnitTestCase
 
     /**
      * @test
-     * @throws JsonException
      * @throws Exception
      */
     public function getAccessTokenReturnsPreviouslySetSerializedToken(): void
