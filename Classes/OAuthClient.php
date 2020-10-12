@@ -267,7 +267,6 @@ abstract class OAuthClient
             if ($oldAuthorization !== null) {
                 $authorization = $oldAuthorization;
             }
-            $authorization->setClientSecret($clientSecret);
             $this->entityManager->persist($authorization);
             $this->entityManager->flush();
         } catch (ORMException $exception) {
@@ -365,11 +364,13 @@ abstract class OAuthClient
      */
     public function refreshAuthorization(string $authorizationId, string $clientId, string $returnToUri): string
     {
+        throw new OAuthClientException('refreshAuthorization is currently not implemented', 1602519541);
+
         $authorization = $this->entityManager->find(Authorization::class, ['authorizationId' => $authorizationId]);
         if (!$authorization instanceof Authorization) {
             throw new OAuthClientException(sprintf('OAuth2: Could not refresh OAuth token because authorization %s was not found in our database.', $authorization), 1505317044316);
         }
-        $oAuthProvider = $this->createOAuthProvider($clientId, $authorization->getClientSecret());
+        $oAuthProvider = $this->createOAuthProvider($clientId, $authorization->getClientSecret()); // FIXME
 
         $this->logger->info(sprintf('OAuth (%s): Refreshing authorization %s for client "%s" using a %s bytes long secret and refresh token "%s".', $this->getServiceType(), $authorizationId, $clientId, strlen($authorization->getClientSecret()), $authorization->refreshToken));
 
