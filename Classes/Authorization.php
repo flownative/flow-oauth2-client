@@ -59,6 +59,12 @@ class Authorization
     protected $scope;
 
     /**
+     * @var \DateTimeImmutable
+     * @ORM\Column(nullable = true)
+     */
+    protected $expires;
+
+    /**
      * @var string
      * @ORM\Column(nullable = true, type = "text")
      */
@@ -208,5 +214,21 @@ class Authorization
         } catch (JsonException $e) {
         }
         return null;
+    }
+
+    /**
+     * @return \DateTimeImmutable
+     */
+    public function getExpires(): ?\DateTimeImmutable
+    {
+        return $this->expires;
+    }
+
+    /**
+     * @param \DateTimeImmutable $expires
+     */
+    public function setExpires(\DateTimeImmutable $expires): void
+    {
+        $this->expires = $expires;
     }
 }
