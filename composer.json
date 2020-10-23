@@ -1,31 +1,32 @@
 {
-  "name": "flownative/oauth2-client",
-  "license": "MIT",
-  "type": "neos-package",
-  "description": "A generic OAuth2 client base implementation for Flow Framework applications",
-  "authors": [
-    {
-      "name": "Robert Lemke",
-      "email": "robert@flownative.com",
-      "homepage": "https://www.flownative.com",
-      "role": "Developer"
+    "name": "flownative/oauth2-client",
+    "license": "MIT",
+    "type": "neos-package",
+    "description": "A generic OAuth2 client base implementation for Flow Framework applications",
+    "authors": [
+        {
+            "name": "Robert Lemke",
+            "email": "robert@flownative.com",
+            "homepage": "https://www.flownative.com",
+            "role": "Developer"
+        }
+    ],
+    "support": {
+        "email": "support@flownative.com"
+    },
+    "require": {
+        "neos/flow": "^4.0 || ^5.0 || ^6.0 || dev-master",
+        "guzzlehttp/guzzle": "6.3.*",
+        "league/oauth2-client": "2.*",
+        "ramsey/uuid": "^3.0 || ^4.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Flownative\\OAuth2\\Client\\": "Classes"
+        }
+    },
+    "extra": {
+        "applied-flow-migrations": [
+        ]
     }
-  ],
-  "support": {
-    "email": "support@flownative.com"
-  },
-  "require": {
-    "neos/flow": "^4.0 || ^5.0 || ^6.0 || dev-master",
-    "guzzlehttp/guzzle": "6.3.*",
-    "league/oauth2-client": "2.*"
-  },
-  "autoload": {
-    "psr-4": {
-      "Flownative\\OAuth2\\Client\\": "Classes"
-    }
-  },
-  "extra": {
-    "applied-flow-migrations": [
-    ]
-  }
 }
