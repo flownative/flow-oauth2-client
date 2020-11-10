@@ -228,6 +228,11 @@ class Authorization
      */
     public function setAccessToken(AccessTokenInterface $accessToken): void
     {
+        $expirationTimestamp = $accessToken->getExpires();
+        if ($expirationTimestamp) {
+            $this->setExpires(\DateTimeImmutable::createFromFormat('U', (string)$expirationTimestamp));
+        }
+
         try {
             if ($this->encryptionService !== null && $this->encryptionService->isConfigured()) {
                 $this->encryptedSerializedAccessToken = $this->encryptionService->encryptAndEncode(json_encode($accessToken, JSON_THROW_ON_ERROR, 512));
