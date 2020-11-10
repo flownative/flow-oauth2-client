@@ -4,7 +4,9 @@ namespace Flownative\OAuth2\Client\Command;
 use Doctrine\ORM\EntityManagerInterface as DoctrineEntityManagerInterface;
 use Doctrine\ORM\OptimisticLockException;
 use Doctrine\ORM\ORMException;
+use Exception;
 use Flownative\OAuth2\Client\Authorization;
+use Flownative\OAuth2\Client\EncryptionService;
 use Neos\Flow\Cli\CommandController;
 use Neos\Flow\Persistence\Doctrine\Query;
 
@@ -47,6 +49,7 @@ final class OAuthCommandController extends CommandController
 
             $rows[] = [
                 $authorization->getAuthorizationId(),
+                empty($authorization->getEncryptedSerializedAccessToken()) ? 'no' : 'yes',
                 $authorization->getServiceName(),
                 $authorization->getClientId(),
                 $authorization->getGrantType(),
@@ -55,7 +58,7 @@ final class OAuthCommandController extends CommandController
                 $values
             ];
         }
-        $this->output->outputTable($rows, ['Authorization Id', 'Service Name', 'Client ID', 'Grant Type', 'Scope', 'Expiration Time', 'Values']);
+        $this->output->outputTable($rows, ['Authorization Id', 'Encrypted', 'Service Name', 'Client ID', 'Grant Type', 'Scope', 'Expiration Time', 'Values']);
     }
 
     /**
@@ -98,5 +101,29 @@ final class OAuthCommandController extends CommandController
             exit(1);
         }
         $this->outputLine('<success>Done</success>');
+    }
+
+    /**
+     * Generate encryption key
+     *
+     * this command generates a random encryption key which can be used as a vale of the
+     * "encryption.base64EncodedKey" setting.
+     *
+     * @param string $construction
+     * @return void
+     * @throws Exception
+     */
+    public function generateEncryptionKeyCommand(string $construction = 'ChaCha20-Poly1305-IETF'): void
+    {
+        if (!extension_loaded('sodium')) {
+            $this->outputLine('<error>This command requires the "sodium" PHP extension to be installed</error>');
+            exit(1);
+        }
+        if ($construction !== 'ChaCha20-Poly1305-IETF') {
+            $this->outputLine('<error>Currently only ChaCha20-Poly1305-IETF is supported</error>');
+        }
+
+        $encryptionService = new EncryptionService();
+        $this->outputLine(base64_encode($encryptionService->generateEncryptionKey()));
     }
 }

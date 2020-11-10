@@ -103,6 +103,51 @@ class AuthorizationTest extends UnitTestCase
 
     /**
      * @test
+     * @throws
+     */
+    public function setAccessTokenEncryptsTokenIfEncryptionServiceIsConfigured(): void
+    {
+        $accessToken = $this->createValidAccessToken();
+
+        $encryptionService = new EncryptionService();
+        $encryptionService->setKey($encryptionService->generateEncryptionKey());
+
+        $authorization = new Authorization('3d47f0eafd6a8b49e32b55103d817b6e4ef489e7', 'service', 'clientId', Authorization::GRANT_AUTHORIZATION_CODE, '');
+        $authorization->injectEncryptionService($encryptionService);
+
+        $authorization->setAccessToken($accessToken);
+        $this->assertNotEmpty($authorization->getEncryptedSerializedAccessToken());
+
+        $secondAccessToken = $authorization->getAccessToken();
+        $this->assertEquals($accessToken, $secondAccessToken);
+    }
+
+    /**
+     * @test
+     * @throws
+     */
+    public function getAccessTokenFailsOnEncryptedTokenIfKeyWasChanged(): void
+    {
+        $accessToken = $this->createValidAccessToken();
+
+        $encryptionService = new EncryptionService();
+        $encryptionService->setKey($encryptionService->generateEncryptionKey());
+
+        $authorization = new Authorization('3d47f0eafd6a8b49e32b55103d817b6e4ef489e7', 'service', 'clientId', Authorization::GRANT_AUTHORIZATION_CODE, '');
+        $authorization->injectEncryptionService($encryptionService);
+
+        $authorization->setAccessToken($accessToken);
+        $this->assertNotEmpty($authorization->getEncryptedSerializedAccessToken());
+
+        // Change the key so that decryption fails:
+        $encryptionService->setKey($encryptionService->generateEncryptionKey());
+
+        $secondAccessToken = $authorization->getAccessToken();
+        $this->assertNull($secondAccessToken);
+    }
+
+    /**
+     * @test
      */
     public function generateAuthorizationIdForClientCredentialsGrantReturnsSha1(): void
     {
@@ -149,7 +194,7 @@ class AuthorizationTest extends UnitTestCase
     /**
      * @test
      */
-    public function getAccessTokenReturnsNullIfTokenCouldNotBeUnserialized(): void
+    public function getAccessTokenReturnsNullIfTokenCouldNotBeDeserialized(): void
     {
         $authorization = new Authorization('3d47f0eafd6a8b49e32b55103d817b6e4ef489e7', 'service', 'clientId', Authorization::GRANT_AUTHORIZATION_CODE, '');
         $authorization->setSerializedAccessToken('invalid json syntax');

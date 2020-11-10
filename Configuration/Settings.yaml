@@ -13,6 +13,13 @@ Flownative:
       services: []
 #        - name: 'flownative-beach'
 #          className: 'Flownative\Beach\BeachClient'
+      encryption:
+
+        # A base64-encoded random key, for example generated with ./flow oauth:generateencryptionkey
+        base64EncodedKey: ''
+
+        # AEAD construction to use; currently only "ChaCha20-Poly1305-IETF" is supported
+        construction: 'ChaCha20-Poly1305-IETF'
 
 Neos:
   Flow:

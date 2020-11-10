@@ -15,6 +15,7 @@ namespace Flownative\OAuth2\Client;
 
 use Doctrine\ORM\Mapping as ORM;
 use Exception;
+use InvalidArgumentException;
 use JsonException;
 use League\OAuth2\Client\Token\AccessToken;
 use League\OAuth2\Client\Token\AccessTokenInterface;
@@ -71,6 +72,17 @@ class Authorization
     protected $serializedAccessToken;
 
     /**
+     * @var string
+     * @ORM\Column(nullable = true, type = "text")
+     */
+    protected $encryptedSerializedAccessToken;
+
+    /**
+     * @var EncryptionService
+     */
+    protected $encryptionService;
+
+    /**
      * @param string $authorizationId
      * @param string $serviceName
      * @param string $clientId
@@ -87,6 +99,14 @@ class Authorization
     }
 
     /**
+     * @param EncryptionService $encryptionService
+     */
+    public function injectEncryptionService(EncryptionService $encryptionService): void
+    {
+        $this->encryptionService = $encryptionService;
+    }
+
+    /**
      * Calculate an authorization identifier (for this model) from the given parameters.
      *
      * @param string $serviceType
@@ -99,7 +119,7 @@ class Authorization
     {
         try {
             return $serviceType . '-' . $serviceName . '-' . Uuid::uuid4()->toString();
-        // @codeCoverageIgnoreStart
+            // @codeCoverageIgnoreStart
         } catch (Exception $e) {
             throw new OAuthClientException(sprintf('Failed generating authorization id for %s %s', $serviceName, $clientId), 1597311416, $e);
         }
@@ -186,17 +206,37 @@ class Authorization
     }
 
     /**
+     * @return string
+     */
+    public function getEncryptedSerializedAccessToken(): string
+    {
+        return $this->encryptedSerializedAccessToken ?? '';
+    }
+
+    /**
+     * @param string $encryptedSerializedAccessToken
+     */
+    public function setEncryptedSerializedAccessToken(string $encryptedSerializedAccessToken): void
+    {
+        $this->encryptedSerializedAccessToken = $encryptedSerializedAccessToken;
+    }
+
+    /**
      * @param AccessTokenInterface $accessToken
      * @return void
-     * @throws \InvalidArgumentException
+     * @throws InvalidArgumentException
      */
     public function setAccessToken(AccessTokenInterface $accessToken): void
     {
         try {
-            $this->serializedAccessToken = json_encode($accessToken, JSON_THROW_ON_ERROR, 512);
+            if ($this->encryptionService !== null && $this->encryptionService->isConfigured()) {
+                $this->encryptedSerializedAccessToken = $this->encryptionService->encryptAndEncode(json_encode($accessToken, JSON_THROW_ON_ERROR, 512));
+            } else {
+                $this->serializedAccessToken = json_encode($accessToken, JSON_THROW_ON_ERROR, 512);
+            }
             // @codeCoverageIgnoreStart
-        } catch (JsonException $e) {
-            throw new \InvalidArgumentException('Failed serializing the given access token', 1602515717);
+        } catch (JsonException | Exception $e) {
+            throw new InvalidArgumentException('Failed serializing the given access token', 1602515717, $e);
             // @codeCoverageIgnoreEnd
         }
     }
@@ -206,10 +246,20 @@ class Authorization
      */
     public function getAccessToken(): ?AccessToken
     {
+        if (empty($this->serializedAccessToken) && empty($this->encryptedSerializedAccessToken)) {
+            return null;
+        }
+        if (!empty($this->encryptedSerializedAccessToken) && !$this->encryptionService->isConfigured()) {
+            return null;
+        }
         try {
+            if (!empty($this->encryptedSerializedAccessToken)) {
+                $deserializedAccessToken = json_decode($this->encryptionService->decodeAndDecrypt($this->encryptedSerializedAccessToken), true, 512, JSON_THROW_ON_ERROR);
+                return new AccessToken($deserializedAccessToken);
+            }
             if (!empty($this->serializedAccessToken)) {
-                $unserializedAccessToken = json_decode($this->serializedAccessToken, true, 512, JSON_THROW_ON_ERROR);
-                return new AccessToken($unserializedAccessToken);
+                $deserializedAccessToken = json_decode($this->serializedAccessToken, true, 512, JSON_THROW_ON_ERROR);
+                return new AccessToken($deserializedAccessToken);
             }
         } catch (JsonException $e) {
         }
