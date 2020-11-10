@@ -78,6 +78,7 @@ class Authorization
     protected $encryptedSerializedAccessToken;
 
     /**
+     * @Flow\Transient
      * @var EncryptionService
      */
     protected $encryptionService;
