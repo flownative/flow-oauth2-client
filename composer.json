@@ -15,7 +15,7 @@
         "email": "support@flownative.com"
     },
     "require": {
-        "neos/flow": "^4.0 || ^5.0 || ^6.0 || dev-master",
+        "neos/flow": "^4.0 || ^5.0 || ^6.0 || ^7.0 || dev-master",
         "guzzlehttp/guzzle": "^6.3",
         "league/oauth2-client": "^2.0",
         "ramsey/uuid": "^3.0 || ^4.0",
