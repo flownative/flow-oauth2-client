@@ -15,7 +15,7 @@ class Version20190610144513 extends AbstractMigration
      */
     public function getDescription()
     {
-        return '';
+        return 'Migrate to completely new model';
     }
 
     /**
