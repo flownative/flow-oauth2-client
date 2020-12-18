@@ -13,7 +13,7 @@ class Version20190528081304 extends AbstractMigration
     /**
      * @return string
      */
-    public function getDescription()
+    public function getDescription(): string 
     {
         return 'Introduce "tokenValues" field';
     }
@@ -24,7 +24,7 @@ class Version20190528081304 extends AbstractMigration
      * @throws \Doctrine\DBAL\DBALException
      * @throws \Doctrine\DBAL\Migrations\AbortMigrationException
      */
-    public function up(Schema $schema)
+    public function up(Schema $schema): void 
     {
         $this->abortIf($this->connection->getDatabasePlatform()->getName() != 'mysql', 'Migration can only be executed safely on "mysql".');
 
@@ -37,7 +37,7 @@ class Version20190528081304 extends AbstractMigration
      * @throws \Doctrine\DBAL\DBALException
      * @throws \Doctrine\DBAL\Migrations\AbortMigrationException
      */
-    public function down(Schema $schema)
+    public function down(Schema $schema): void 
     {
         $this->abortIf($this->connection->getDatabasePlatform()->getName() != 'mysql', 'Migration can only be executed safely on "mysql".');
 
