@@ -404,6 +404,22 @@ abstract class OAuthClient
     }
 
     /**
+     * Removes the specified Authorization record
+     *
+     * @param string $authorizationId
+     * @return void
+     */
+    public function removeAuthorization(string $authorizationId): void
+    {
+        $existingAuthorization = $this->getAuthorization($authorizationId);
+        if ($existingAuthorization !== null) {
+            $this->entityManager->remove($existingAuthorization);
+            $this->entityManager->flush();
+            $this->logger->debug(sprintf('OAuth (%s): Removed authorization id %s', $this->getServiceType(), $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
+        }
+    }
+
+    /**
      * Returns a prepared request to an OAuth 2.0 service provider using Bearer token authentication
      *
      * @param Authorization $authorization
