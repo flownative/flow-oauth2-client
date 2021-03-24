@@ -226,7 +226,7 @@ abstract class OAuthClient
      */
     public function requestAccessToken(string $serviceName, string $clientId, string $clientSecret, string $scope,  array $additionalParameters = []): void
     {
-        $authorizationId = Authorization::generateAuthorizationIdForClientCredentialsGrant($serviceName, $clientId, $clientSecret, $scope);
+        $authorizationId = Authorization::generateAuthorizationIdForClientCredentialsGrant($serviceName, $clientId, $clientSecret, $scope, $additionalParameters);
         $this->logger->info(sprintf('OAuth (%s): Retrieving access token using client credentials grant for client "%s" using a %s bytes long secret. (authorization id: %s)', $this->getServiceType(), $clientId, strlen($clientSecret), $authorizationId));
 
         $existingAuthorization = $this->getAuthorization($authorizationId);

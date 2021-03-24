@@ -134,11 +134,17 @@ class Authorization
      * @param string $clientId
      * @param string $clientSecret
      * @param string $scope
+     * @param array $additionalParameters
      * @return string
      */
-    public static function generateAuthorizationIdForClientCredentialsGrant(string $serviceName, string $clientId, string $clientSecret, string $scope): string
+    public static function generateAuthorizationIdForClientCredentialsGrant(string $serviceName, string $clientId, string $clientSecret, string $scope, array $additionalParameters = []): string
     {
-        return hash('sha512', $serviceName . $clientId . $clientSecret . $scope . self::GRANT_CLIENT_CREDENTIALS);
+        try {
+            $additionalParametersJson = json_encode($additionalParameters, JSON_THROW_ON_ERROR);
+        } catch (JsonException $e) {
+            $additionalParametersJson = '';
+        }
+        return hash('sha512', $serviceName . $clientId . $clientSecret . $scope . $additionalParametersJson . self::GRANT_CLIENT_CREDENTIALS);
     }
 
     /**

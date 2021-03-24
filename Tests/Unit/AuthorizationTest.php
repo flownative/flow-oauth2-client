@@ -152,9 +152,9 @@ class AuthorizationTest extends UnitTestCase
     public function generateAuthorizationIdForClientCredentialsGrantReturnsSha1(): void
     {
         $authorizationId = Authorization::generateAuthorizationIdForClientCredentialsGrant(
-            'oidc_test', 'ac36cGG4d2Cef1DeuevA7T1u7V4WOUI14', 'CMc4EHfyMPLw}Tua%rnyxCnrTWMuX3', 'oidc profile'
+            'oidc_test', 'ac36cGG4d2Cef1DeuevA7T1u7V4WOUI14', 'CMc4EHfyMPLw}Tua%rnyxCnrTWMuX3', 'oidc profile', ['audience' => 'https://www.example.com']
         );
-        self::assertSame('bd55b7bc1b40d6342789c74fcc1900877b3966f4656c5d6a1c0a9111a1da02365ba9f00fcb1d058629446f7ec83d02166b0a8c271cbf1374467e7f294bb4b784', $authorizationId);
+        self::assertSame('c2d332337e6765c1f6876fe61c6bc63e98c1d3018ff5b56899ee54a1d1e8b1a5272b9ae9f73dc37429bccec583c3754d52bd8ef4e0f05001aa02a50e24b654a5', $authorizationId);
     }
 
     /**
