@@ -13,6 +13,10 @@ Flownative:
       services: []
 #        - name: 'flownative-beach'
 #          className: 'Flownative\Beach\BeachClient'
+      token:
+
+        # default lifetime of new tokens in seconds
+        defaultLifetime: ~
       encryption:
 
         # A base64-encoded random key, for example generated with ./flow oauth:generateencryptionkey
