@@ -65,8 +65,9 @@ by using environment variables.
 ```yaml
 Flownative:
   OAuth2:
-    encryption:
-      base64EncodedKey: 'qpBzrH7icQqBKenvk8wTKROv4qcJNxslzdGo3IKXmws='
+    Client:
+      encryption:
+        base64EncodedKey: 'qpBzrH7icQqBKenvk8wTKROv4qcJNxslzdGo3IKXmws='
 ```
 
 ### Verifying Encryption Configuration
