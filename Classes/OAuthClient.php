@@ -76,6 +76,12 @@ abstract class OAuthClient
     protected $garbageCollectionProbability;
 
     /**
+     * @Flow\InjectConfiguration(path="token.defaultLifetime", package="Flownative.OAuth2.Client")
+     * @var int|null
+     */
+    protected $defaultTokenLifetime;
+
+    /**
      * @var Client
      */
     protected $httpClient;
@@ -261,6 +267,10 @@ abstract class OAuthClient
     {
         $authorizationId = Authorization::generateAuthorizationIdForAuthorizationCodeGrant($this->getServiceType(), $this->getServiceName(), $clientId);
         $authorization = new Authorization($authorizationId, $this->getServiceType(), $clientId, Authorization::GRANT_AUTHORIZATION_CODE, $scope);
+        if ($this->defaultTokenLifetime !== null) {
+            $authorization->setExpires(new \DateTimeImmutable('+ ' . $this->defaultTokenLifetime . ' seconds'));
+        }
+
         $this->logger->info(sprintf('OAuth (%s): Starting authorization %s using client id "%s", a %s bytes long secret and scope "%s".', $this->getServiceType(), $authorization->getAuthorizationId(), $clientId, strlen($clientSecret), $scope));
 
         try {
