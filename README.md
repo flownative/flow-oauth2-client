@@ -26,6 +26,37 @@ authorization" request. Another example is the client credentials flow,
 where an access token is stored in the authorizations table which is
 needed for executing authorized requests to the respective service.
 
+### Token lifetime
+
+New Authorization tokens are created with a lifetime of 600 seconds
+(10 minutes) by default.
+The expiration date is updated during authentication if a different
+`expires` parameter is specified in the OAuth2 access token.
+
+The default token lifetime and frequency of expired tokens to be removed
+automatically can be configured:
+
+```yaml
+Flownative:
+  OAuth2:
+    Client:
+      garbageCollection:
+        # The probability in percent of a client shutdown triggering a garbage
+        # collection which removes expired tokens.
+        #
+        # Examples:
+        #    1    (would be a 1% chance to clean up)
+        #   20    (would be a 20% chance to clean up)
+        #    0.42 (would be a 0.42 % chance to clean up)
+        probability: 1
+    token:
+      # default lifetime of new tokens in seconds
+      defaultLifetime: 600
+```
+
+Note: By setting the `defaultLifetime` to `null`, new tokens won't expire
+by default.
+
 ## Encryption
 
 By default, access tokens are serialized and stored unencrypted in the
