@@ -16,7 +16,7 @@ Flownative:
       token:
 
         # default lifetime of new tokens in seconds
-        defaultLifetime: ~
+        defaultLifetime: 600 # 600 seconds = 10 minutes
       encryption:
 
         # A base64-encoded random key, for example generated with ./flow oauth:generateencryptionkey
