@@ -249,6 +249,18 @@ abstract class OAuthClient
     }
 
     /**
+     * Returns an authorization id taking the service type and service name into account.
+     *
+     * @param string $clientId
+     * @return string
+     * @throws OAuthClientException
+     */
+    public function generateAuthorizationIdForAuthorizationCodeGrant(string $clientId)
+    {
+        return Authorization::generateAuthorizationIdForAuthorizationCodeGrant($this->getServiceType(), $this->getServiceName(), $clientId);
+    }
+
+    /**
      * Start OAuth authorization with the Authorization Code flow
      *
      * @param string $clientId The client id, as provided by the OAuth server
@@ -260,7 +272,22 @@ abstract class OAuthClient
      */
     public function startAuthorization(string $clientId, string $clientSecret, UriInterface $returnToUri, string $scope): UriInterface
     {
-        $authorizationId = Authorization::generateAuthorizationIdForAuthorizationCodeGrant($this->getServiceType(), $this->getServiceName(), $clientId);
+        $authorizationId = $this->generateAuthorizationIdForAuthorizationCodeGrant($clientId);
+        return $this->startAuthorizationWithId($authorizationId, $clientId, $clientSecret, $returnToUri, $scope);
+    }
+
+    /**
+     * Start OAuth authorization with the Authorization Code flow
+     *
+     * @param string $clientId The client id, as provided by the OAuth server
+     * @param string $clientSecret The client secret, provided by the OAuth server
+     * @param UriInterface $returnToUri URI to return to when authorization is finished
+     * @param string $scope Scope to request for authorization. Must be scope ids separated by space, e.g. "openid profile email"
+     * @return UriInterface The URL the browser should redirect to, asking the user to authorize
+     * @throws OAuthClientException
+     */
+    public function startAuthorizationWithId(string $authorizationId, string $clientId, string $clientSecret, UriInterface $returnToUri, string $scope): UriInterface
+    {
         $authorization = new Authorization($authorizationId, $this->getServiceType(), $clientId, Authorization::GRANT_AUTHORIZATION_CODE, $scope);
         $this->logger->info(sprintf('OAuth (%s): Starting authorization %s using client id "%s", a %s bytes long secret and scope "%s".', $this->getServiceType(), $authorization->getAuthorizationId(), $clientId, strlen($clientSecret), $scope));
 
