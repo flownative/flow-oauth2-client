@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 namespace Flownative\OAuth2\Client;
 
@@ -472,10 +473,10 @@ abstract class OAuthClient
         $this->uriBuilder->setCreateAbsoluteUri(true);
 
         try {
-            $uri = $this->uriBuilder->
-            reset()->
-            setCreateAbsoluteUri(true)->
-            uriFor('finishAuthorization', ['serviceType' => $this->getServiceType(), 'serviceName' => $this->getServiceName()], 'OAuth', 'Flownative.OAuth2.Client');
+            $uri = $this->uriBuilder
+                ->reset()
+                ->setCreateAbsoluteUri(true)
+                ->uriFor('finishAuthorization', ['serviceType' => $this->getServiceType(), 'serviceName' => $this->getServiceName()], 'OAuth', 'Flownative.OAuth2.Client');
             return $uri;
         } catch (MissingActionNameException $e) {
             return '';
@@ -527,13 +528,12 @@ abstract class OAuthClient
      */
     public function shutdownObject(): void
     {
-        $decimals = (integer)strlen(strrchr($this->garbageCollectionProbability, '.')) - 1;
+        $decimals = strlen(strrchr($this->garbageCollectionProbability, '.')) - 1;
         $factor = ($decimals > -1) ? $decimals * 10 : 1;
         try {
             if (random_int(1, 100 * $factor) <= ($this->garbageCollectionProbability * $factor)) {
                 $this->removeExpiredAuthorizations();
             }
-        } catch (InvalidQueryException $e) {
         } catch (\Exception $e) {
         }
     }
