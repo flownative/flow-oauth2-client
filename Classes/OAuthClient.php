@@ -575,7 +575,8 @@ abstract class OAuthClient
      */
     public function shutdownObject(): void
     {
-        $decimals = strlen(strrchr($this->garbageCollectionProbability, '.')) - 1;
+        $garbageCollectionProbability = (string)$this->garbageCollectionProbability;
+        $decimals = strlen(strrchr($garbageCollectionProbability, '.') ?: '') - 1;
         $factor = ($decimals > -1) ? $decimals * 10 : 1;
         try {
             if (random_int(1, 100 * $factor) <= ($this->garbageCollectionProbability * $factor)) {
