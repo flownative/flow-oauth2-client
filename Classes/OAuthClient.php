@@ -441,6 +441,8 @@ abstract class OAuthClient
      */
     public function getAuthenticatedRequest(Authorization $authorization, string $relativeUri, string $method = 'GET', array $bodyFields = []): RequestInterface
     {
+        throw new OAuthClientException('getAuthenticatedRequest is currently not implemented', 1631826501);
+
         $accessToken = $authorization->getAccessToken();
         if ($accessToken === null) {
             throw new OAuthClientException(sprintf($this->getServiceType() . 'Failed getting an authenticated request for client ID "%s" because the authorization contained no access token', $authorization->getClientId()), 1589300319);
@@ -473,6 +475,8 @@ abstract class OAuthClient
      */
     public function sendAuthenticatedRequest(Authorization $authorization, string $relativeUri, string $method = 'GET', array $bodyFields = []): Response
     {
+        throw new OAuthClientException('sendAuthenticatedRequest is currently not implemented', 1631826483);
+
         if ($this->httpClient === null) {
             $this->httpClient = new Client(['allow_redirects' => false]);
         }
