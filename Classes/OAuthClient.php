@@ -484,6 +484,26 @@ abstract class OAuthClient
     }
 
     /**
+     * Helper method to set metadate on an Authorization instance, makes sure the
+     * change is persisted.
+     *
+     * @param string $authorizationId
+     * @param string $metadata
+     * @return void
+     */
+    public function setAuthorizationMetadata(string $authorizationId, string $metadata): void
+    {
+        $authorization = $this->getAuthorization($authorizationId);
+        if ($authorization === null) {
+            throw new \RuntimeException('Authorization not found', 1631821719);
+        }
+        $authorization->setMetadata($metadata);
+
+        $this->entityManager->persist($authorization);
+        $this->entityManager->flush();
+    }
+
+    /**
      * @param string $clientId
      * @param string $clientSecret
      * @return GenericProvider
