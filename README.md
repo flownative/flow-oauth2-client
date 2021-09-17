@@ -57,6 +57,38 @@ Flownative:
 Note: By setting the `defaultLifetime` to `null`, new tokens won't expire
 by default.
 
+### Authorization metadata
+
+Authorizations also may contain developer-provided metadata. For
+example, you may attach an account identifier to an authorization when
+an authorization process starts and use that information when
+authorization finishes to make sure that the authorization is only used
+for a specific account (or customer number, or participant id).
+
+To set metadata, you need to know the authorization id when starting the
+authorization code flow. This code could be used in an overloaded
+`startAuthorizationAction()`:
+
+```php
+$authorizationId = $oAuthClient->generateAuthorizationIdForAuthorizationCodeGrant($this->appId);
+$loginUri = $oAuthClient->startAuthorizationWithId(
+    $authorizationId,
+    $this->appId,
+    $this->appSecret,
+    $returnToUri,
+    $scope
+);
+$oAuthClient->setAuthorizationMetadata($authorizationId, json_encode($metadata));
+```
+
+And later, in `finishAuthorization()`, you may retrieve the metadata as
+follows:
+
+```php
+$authorization = $this->getAuthorization($authorizationId);
+$metadata = json_decode($authorization->getMetadata());
+```
+
 ## Encryption
 
 By default, access tokens are serialized and stored unencrypted in the

@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 namespace Flownative\OAuth2\Client;
 
@@ -254,6 +255,18 @@ abstract class OAuthClient
     }
 
     /**
+     * Returns an authorization id taking the service type and service name into account.
+     *
+     * @param string $clientId
+     * @return string
+     * @throws OAuthClientException
+     */
+    public function generateAuthorizationIdForAuthorizationCodeGrant(string $clientId): string
+    {
+        return Authorization::generateAuthorizationIdForAuthorizationCodeGrant($this->getServiceType(), $this->getServiceName(), $clientId);
+    }
+
+    /**
      * Start OAuth authorization with the Authorization Code flow
      *
      * @param string $clientId The client id, as provided by the OAuth server
@@ -265,7 +278,30 @@ abstract class OAuthClient
      */
     public function startAuthorization(string $clientId, string $clientSecret, UriInterface $returnToUri, string $scope): UriInterface
     {
-        $authorizationId = Authorization::generateAuthorizationIdForAuthorizationCodeGrant($this->getServiceType(), $this->getServiceName(), $clientId);
+        $authorizationId = $this->generateAuthorizationIdForAuthorizationCodeGrant($clientId);
+        return $this->startAuthorizationWithId($authorizationId, $clientId, $clientSecret, $returnToUri, $scope);
+    }
+
+    /**
+     * Start OAuth authorization with the Authorization Code flow
+     * based on a specified authorization identifier.
+     *
+     * Note that, if you use this method, it is your responsibility to provide a
+     * meaningful authorization id. You might weaken the security of your
+     * application if you use an id which is deterministic or can be guessed by
+     * an attacker.
+     *
+     * If in doubt, always use startAuthorization() instead.
+     *
+     * @param string $clientId The client id, as provided by the OAuth server
+     * @param string $clientSecret The client secret, provided by the OAuth server
+     * @param UriInterface $returnToUri URI to return to when authorization is finished
+     * @param string $scope Scope to request for authorization. Must be scope ids separated by space, e.g. "openid profile email"
+     * @return UriInterface The URL the browser should redirect to, asking the user to authorize
+     * @throws OAuthClientException
+     */
+    public function startAuthorizationWithId(string $authorizationId, string $clientId, string $clientSecret, UriInterface $returnToUri, string $scope): UriInterface
+    {
         $authorization = new Authorization($authorizationId, $this->getServiceType(), $clientId, Authorization::GRANT_AUTHORIZATION_CODE, $scope);
         if ($this->defaultTokenLifetime !== null) {
             $authorization->setExpires(new \DateTimeImmutable('+ ' . $this->defaultTokenLifetime . ' seconds'));
@@ -502,14 +538,34 @@ abstract class OAuthClient
         $this->uriBuilder->setCreateAbsoluteUri(true);
 
         try {
-            $uri = $this->uriBuilder->
-            reset()->
-            setCreateAbsoluteUri(true)->
-            uriFor('finishAuthorization', ['serviceType' => $this->getServiceType(), 'serviceName' => $this->getServiceName()], 'OAuth', 'Flownative.OAuth2.Client');
+            $uri = $this->uriBuilder
+                ->reset()
+                ->setCreateAbsoluteUri(true)
+                ->uriFor('finishAuthorization', ['serviceType' => $this->getServiceType(), 'serviceName' => $this->getServiceName()], 'OAuth', 'Flownative.OAuth2.Client');
             return $uri;
         } catch (MissingActionNameException $e) {
             return '';
         }
+    }
+
+    /**
+     * Helper method to set metadata on an Authorization instance. Changes are
+     * persisted immediately.
+     *
+     * @param string $authorizationId
+     * @param string $metadata
+     * @return void
+     */
+    public function setAuthorizationMetadata(string $authorizationId, string $metadata): void
+    {
+        $authorization = $this->getAuthorization($authorizationId);
+        if ($authorization === null) {
+            throw new \RuntimeException(sprintf('Failed setting authorization metadata: authorization %s was not found', $authorizationId), 1631821719);
+        }
+        $authorization->setMetadata($metadata);
+
+        $this->entityManager->persist($authorization);
+        $this->entityManager->flush();
     }
 
     /**
@@ -557,13 +613,13 @@ abstract class OAuthClient
      */
     public function shutdownObject(): void
     {
-        $decimals = (integer)strlen(strrchr($this->garbageCollectionProbability, '.')) - 1;
+        $garbageCollectionProbability = (string)$this->garbageCollectionProbability;
+        $decimals = strlen(strrchr($garbageCollectionProbability, '.') ?: '') - 1;
         $factor = ($decimals > -1) ? $decimals * 10 : 1;
         try {
             if (random_int(1, 100 * $factor) <= ($this->garbageCollectionProbability * $factor)) {
                 $this->removeExpiredAuthorizations();
             }
-        } catch (InvalidQueryException $e) {
         } catch (\Exception $e) {
         }
     }

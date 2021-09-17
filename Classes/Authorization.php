@@ -78,6 +78,12 @@ class Authorization
     protected $encryptedSerializedAccessToken;
 
     /**
+     * @var string
+     * @ORM\Column(nullable = true, type = "text")
+     */
+    protected $metadata;
+
+    /**
      * @Flow\Transient
      * @var EncryptionService
      */
@@ -292,5 +298,15 @@ class Authorization
     public function setExpires(\DateTimeImmutable $expires): void
     {
         $this->expires = $expires;
+    }
+
+    public function getMetadata(): ?string
+    {
+        return $this->metadata;
+    }
+
+    public function setMetadata(string $metadata): void
+    {
+        $this->metadata = $metadata;
     }
 }
