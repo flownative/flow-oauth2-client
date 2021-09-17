@@ -255,7 +255,7 @@ abstract class OAuthClient
      * @return string
      * @throws OAuthClientException
      */
-    public function generateAuthorizationIdForAuthorizationCodeGrant(string $clientId)
+    public function generateAuthorizationIdForAuthorizationCodeGrant(string $clientId): string
     {
         return Authorization::generateAuthorizationIdForAuthorizationCodeGrant($this->getServiceType(), $this->getServiceName(), $clientId);
     }
@@ -278,6 +278,14 @@ abstract class OAuthClient
 
     /**
      * Start OAuth authorization with the Authorization Code flow
+     * based on a specified authorization identifier.
+     *
+     * Note that, if you use this method, it is your responsibility to provide a
+     * meaningful authorization id. You might weaken the security of your
+     * application if you use an id which is deterministic or can be guessed by
+     * an attacker.
+     *
+     * If in doubt, always use startAuthorization() instead.
      *
      * @param string $clientId The client id, as provided by the OAuth server
      * @param string $clientSecret The client secret, provided by the OAuth server
@@ -511,8 +519,8 @@ abstract class OAuthClient
     }
 
     /**
-     * Helper method to set metadate on an Authorization instance, makes sure the
-     * change is persisted.
+     * Helper method to set metadata on an Authorization instance. Changes are
+     * persisted immediately.
      *
      * @param string $authorizationId
      * @param string $metadata
@@ -522,7 +530,7 @@ abstract class OAuthClient
     {
         $authorization = $this->getAuthorization($authorizationId);
         if ($authorization === null) {
-            throw new \RuntimeException('Authorization not found', 1631821719);
+            throw new \RuntimeException(sprintf('Failed setting authorization metadata: authorization %s was not found', $authorizationId), 1631821719);
         }
         $authorization->setMetadata($metadata);
 
