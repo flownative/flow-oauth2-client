@@ -16,7 +16,7 @@
     },
     "require": {
         "neos/flow": "^6.0 || ^7.0 || dev-master",
-        "guzzlehttp/guzzle": "^6.3",
+        "guzzlehttp/guzzle": "^7.3",
         "league/oauth2-client": "^2.0",
         "ramsey/uuid": "^3.0 || ^4.0",
         "paragonie/sodium_compat": "^1.10"
