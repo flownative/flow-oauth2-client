@@ -17,6 +17,7 @@ use Neos\Cache\Frontend\VariableFrontend;
 use Neos\Flow\Annotations as Flow;
 use Neos\Flow\Core\Bootstrap;
 use Neos\Flow\Http\HttpRequestHandlerInterface;
+use Neos\Flow\Http\Request;
 use Neos\Flow\Log\Utility\LogEnvironment;
 use Neos\Flow\Mvc\ActionRequest;
 use Neos\Flow\Mvc\Routing\Exception\MissingActionNameException;
@@ -24,7 +25,6 @@ use Neos\Flow\Mvc\Routing\UriBuilder;
 use Neos\Flow\Persistence\Doctrine\Query;
 use Neos\Flow\Persistence\Exception\InvalidQueryException;
 use Neos\Flow\Session\SessionInterface;
-use Neos\Http\Factories\ServerRequestFactory;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\UriInterface;
 use Psr\Log\LoggerInterface;
@@ -57,12 +57,6 @@ abstract class OAuthClient
      * @var Bootstrap
      */
     protected $bootstrap;
-
-    /**
-     * @Flow\Inject
-     * @var ServerRequestFactory
-     */
-    protected $serverRequestFactory;
 
     /**
      * @Flow\InjectConfiguration(path="http.baseUri", package="Neos.Flow")
@@ -496,12 +490,13 @@ abstract class OAuthClient
     {
         $currentRequestHandler = $this->bootstrap->getActiveRequestHandler();
         if ($currentRequestHandler instanceof HttpRequestHandlerInterface) {
-            $httpRequest = $currentRequestHandler->getComponentContext()->getHttpRequest();
+            $httpRequest = $currentRequestHandler->getHttpRequest();
         } else {
             putenv('FLOW_REWRITEURLS=1');
-            $httpRequest = $this->serverRequestFactory->createServerRequest('GET', new Uri($this->flowBaseUriSetting));
+            $httpRequest = Request::createFromEnvironment();
+            $httpRequest->setBaseUri(new Uri($this->flowBaseUriSetting));
         }
-        $actionRequest = ActionRequest::fromHttpRequest($httpRequest);
+        $actionRequest = new ActionRequest($httpRequest);
 
         $this->uriBuilder->reset();
         $this->uriBuilder->setRequest($actionRequest);
