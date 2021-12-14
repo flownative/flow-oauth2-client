@@ -21,7 +21,7 @@ final class OAuthTestClient extends OAuthClient
     public const TEST_BASE_URI = 'https://localbeach.net/';
     public const TEST_CLIENT_ID = 'my-client-id';
 
-    public function getServiceType(): string
+    public static function getServiceType(): string
     {
         return self::TEST_SERVICE_TYPE;
     }

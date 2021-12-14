@@ -14,7 +14,14 @@
     "support": {
         "email": "support@flownative.com"
     },
+    "funding": [
+        {
+            "type": "github",
+            "url": "https://github.com/sponsors/robertlemke"
+        }
+    ],
     "require": {
+        "php": "^7.4 || ^8.0",
         "neos/flow": "^6.0 || ^7.0 || dev-master",
         "guzzlehttp/guzzle": "^6.3",
         "league/oauth2-client": "^2.0",

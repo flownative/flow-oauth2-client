@@ -95,7 +95,7 @@ final class OAuthController extends ActionController
             if ($reflectionService->isClassAbstract($serviceTypeClassName)) {
                 continue;
             }
-            $serviceType = call_user_func_array([$serviceTypeClassName, 'getServiceType'], []);
+            $serviceType = $serviceTypeClassName::getServiceType();
             $serviceTypes[$serviceType] = $serviceTypeClassName;
         }
         return $serviceTypes;

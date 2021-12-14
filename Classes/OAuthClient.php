@@ -132,7 +132,7 @@ abstract class OAuthClient
      *
      * @return string For example, "Github", "oidc", ...
      */
-    abstract public function getServiceType(): string;
+    abstract public static function getServiceType(): string;
 
     /**
      * Returns the service name, i.e. something like an instance name of the concrete implementation of this client
