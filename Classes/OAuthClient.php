@@ -359,6 +359,7 @@ abstract class OAuthClient
         if (empty($stateFromCache)) {
             throw new OAuthClientException(sprintf('OAuth: Finishing authorization failed because oAuth state %s could not be retrieved from the state cache.', $stateIdentifier), 1558956494);
         }
+        $this->stateCache->remove($stateIdentifier);
 
         $authorizationId = $stateFromCache['authorizationId'];
         $clientId = $stateFromCache['clientId'];
@@ -619,6 +620,7 @@ abstract class OAuthClient
         try {
             if (random_int(1, 100 * $factor) <= ($this->garbageCollectionProbability * $factor)) {
                 $this->removeExpiredAuthorizations();
+                $this->stateCache->collectGarbage();
             }
         } catch (\Exception $e) {
         }
