@@ -20,8 +20,8 @@ final class Version20240111140935 extends AbstractMigration
     public function up(Schema $schema): void
     {
         $this->abortIf(
-            !$this->connection->getDatabasePlatform() instanceof \Doctrine\DBAL\Platforms\PostgreSQL94Platform,
-            "Migration can only be executed safely on '\Doctrine\DBAL\Platforms\PostgreSQL94Platform'."
+            !$this->connection->getDatabasePlatform() instanceof \Doctrine\DBAL\Platforms\PostgreSQL100Platform,
+            "Migration can only be executed safely on '\Doctrine\DBAL\Platforms\PostgreSQL100Platform'."
         );
 
         $this->addSql('CREATE TABLE flownative_oauth2_client_authorization (authorizationid VARCHAR(255) NOT NULL, servicename VARCHAR(255) NOT NULL, clientid VARCHAR(255) NOT NULL, granttype VARCHAR(255) NOT NULL, scope VARCHAR(255) NOT NULL, expires TIMESTAMP(0) WITHOUT TIME ZONE DEFAULT NULL, serializedaccesstoken TEXT DEFAULT NULL, encryptedserializedaccesstoken TEXT DEFAULT NULL, metadata TEXT DEFAULT NULL, PRIMARY KEY(authorizationid))');
@@ -31,8 +31,8 @@ final class Version20240111140935 extends AbstractMigration
     public function down(Schema $schema): void
     {
         $this->abortIf(
-            !$this->connection->getDatabasePlatform() instanceof \Doctrine\DBAL\Platforms\PostgreSQL94Platform,
-            "Migration can only be executed safely on '\Doctrine\DBAL\Platforms\PostgreSQL94Platform'."
+            !$this->connection->getDatabasePlatform() instanceof \Doctrine\DBAL\Platforms\PostgreSQL100Platform,
+            "Migration can only be executed safely on '\Doctrine\DBAL\Platforms\PostgreSQL100Platform'."
         );
 
         $this->addSql('DROP TABLE flownative_oauth2_client_authorization');
