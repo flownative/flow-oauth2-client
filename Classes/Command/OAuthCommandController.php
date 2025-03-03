@@ -1,10 +1,9 @@
 <?php
+declare(strict_types=1);
+
 namespace Flownative\OAuth2\Client\Command;
 
 use Doctrine\ORM\EntityManagerInterface as DoctrineEntityManagerInterface;
-use Doctrine\ORM\OptimisticLockException;
-use Doctrine\ORM\ORMException;
-use Exception;
 use Flownative\OAuth2\Client\Authorization;
 use Flownative\OAuth2\Client\EncryptionService;
 use Neos\Flow\Cli\CommandController;
@@ -12,10 +11,7 @@ use Neos\Flow\Persistence\Doctrine\Query;
 
 final class OAuthCommandController extends CommandController
 {
-    /**
-     * @var DoctrineEntityManagerInterface
-     */
-    protected $entityManager;
+    protected DoctrineEntityManagerInterface $entityManager;
 
     /**
      * @param DoctrineEntityManagerInterface $entityManager
@@ -34,6 +30,7 @@ final class OAuthCommandController extends CommandController
      * a hash over service name, client id, grant type and scope.
      *
      * @return void
+     * @throws \SodiumException
      */
     public function listAuthorizationsCommand(): void
     {
@@ -95,8 +92,7 @@ final class OAuthCommandController extends CommandController
         }
         try {
             $this->entityManager->flush();
-        } catch (OptimisticLockException $e) {
-        } catch (ORMException $e) {
+        } catch (\Exception $e) {
             $this->outputLine('<error>Failed:</error> ' . $e->getMessage());
             exit(1);
         }
@@ -111,7 +107,7 @@ final class OAuthCommandController extends CommandController
      *
      * @param string $construction
      * @return void
-     * @throws Exception
+     * @throws \Exception
      */
     public function generateEncryptionKeyCommand(string $construction = 'ChaCha20-Poly1305-IETF'): void
     {

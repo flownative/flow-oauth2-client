@@ -4,10 +4,7 @@ declare(strict_types=1);
 namespace Flownative\OAuth2\Client;
 
 use Doctrine\ORM\EntityManagerInterface;
-use Doctrine\ORM\ORMException;
-use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
-use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Psr7\Uri;
 use League\OAuth2\Client\Provider\Exception\IdentityProviderException;
 use League\OAuth2\Client\Provider\GenericProvider;
@@ -16,16 +13,14 @@ use Neos\Cache\Exception;
 use Neos\Cache\Frontend\VariableFrontend;
 use Neos\Flow\Annotations as Flow;
 use Neos\Flow\Core\Bootstrap;
+use Neos\Flow\Http\Exception as HttpException;
 use Neos\Flow\Http\HttpRequestHandlerInterface;
 use Neos\Flow\Log\Utility\LogEnvironment;
 use Neos\Flow\Mvc\ActionRequest;
 use Neos\Flow\Mvc\Routing\Exception\MissingActionNameException;
 use Neos\Flow\Mvc\Routing\UriBuilder;
 use Neos\Flow\Persistence\Doctrine\Query;
-use Neos\Flow\Persistence\Exception\InvalidQueryException;
-use Neos\Flow\Session\SessionInterface;
 use Neos\Http\Factories\ServerRequestFactory;
-use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\UriInterface;
 use Psr\Log\LoggerInterface;
 
@@ -36,15 +31,10 @@ abstract class OAuthClient
 {
     /**
      * Name of the HTTP query parameter used for passing around the authorization id
-     *
-     * @const string
      */
     public const AUTHORIZATION_ID_QUERY_PARAMETER_NAME_PREFIX = 'flownative_oauth2_authorization_id';
 
-    /**
-     * @var string
-     */
-    protected $serviceName;
+    protected string $serviceName;
 
     /**
      * @Flow\Inject
@@ -82,21 +72,7 @@ abstract class OAuthClient
      */
     protected $defaultTokenLifetime;
 
-    /**
-     * @var Client
-     */
-    protected $httpClient;
-
-    /**
-     * @Flow\Inject
-     * @var SessionInterface
-     */
-    protected $session;
-
-    /**
-     * @var EntityManagerInterface
-     */
-    protected $entityManager;
+    protected EntityManagerInterface $entityManager;
 
     /**
      * @Flow\Inject
@@ -110,34 +86,25 @@ abstract class OAuthClient
      */
     protected $stateCache;
 
-    /**
-     * @param string $serviceName
-     */
     public function __construct(string $serviceName)
     {
         $this->serviceName = $serviceName;
     }
 
-    /**
-     * @param EntityManagerInterface $entityManager
-     * @return void
-     */
     public function injectEntityManager(EntityManagerInterface $entityManager): void
     {
         $this->entityManager = $entityManager;
     }
 
     /**
-     * Returns the service type, i.e. a specific implementation of this client to use
-     *
-     * @return string For example, "Github", "oidc", ...
+     * Returns the service type, i.e. a specific implementation of this client to use,
+     * for example, "Github", "oidc", ...
      */
     abstract public static function getServiceType(): string;
 
     /**
-     * Returns the service name, i.e. something like an instance name of the concrete implementation of this client
-     *
-     * @return string For example, "SpecificGithubConnection", "MySpecialService", ...
+     * Returns the service name, i.e. something like an instance name of the concrete implementation of this client,
+     * for example, "SpecificGithubConnection", "MySpecialService", ...
      */
     public function getServiceName(): string
     {
@@ -145,24 +112,19 @@ abstract class OAuthClient
     }
 
     /**
-     * Returns the OAuth server's base URI
-     *
-     * @return string For example https://myservice.flownative.com
+     * Returns the OAuth server's base URI, for example https://myservice.flownative.com
      */
     abstract public function getBaseUri(): string;
 
     /**
      * Returns the current client id (for sending authenticated requests)
-     *
-     * @return string The client id which is known by the OAuth server
+     * which is known by the OAuth server
      */
     abstract public function getClientId(): string;
 
     /**
      * Returns the OAuth service endpoint for the access token.
      * Override this method if needed.
-     *
-     * @return string
      */
     public function getAccessTokenUri(): string
     {
@@ -172,8 +134,6 @@ abstract class OAuthClient
     /**
      * Returns the OAuth service endpoint for authorizing a token.
      * Override this method if needed.
-     *
-     * @return string
      */
     public function getAuthorizeTokenUri(): string
     {
@@ -183,8 +143,6 @@ abstract class OAuthClient
     /**
      * Returns the OAuth service endpoint for accessing the resource owner details.
      * Override this method if needed.
-     *
-     * @return string
      */
     public function getResourceOwnerUri(): string
     {
@@ -196,8 +154,6 @@ abstract class OAuthClient
      *
      * You may override this method an provide a custom request factory, for example for adding
      * additional headers (e.g. User-Agent) to every request.
-     *
-     * @return RequestFactory
      */
     public function getRequestFactory(): RequestFactory
     {
@@ -208,8 +164,7 @@ abstract class OAuthClient
      * Generates the URL query parameter name which is used for passing the authorization id of a
      * finishing authorization to Flow (via the "Return URL").
      *
-     * @param string $serviceType "Class" of the of the service, for example, "Github", "oidc", ...
-     * @return string
+     * The $serviceType  is the "class" of the of the service, for example, "Github", "oidc", ...
      */
     public static function generateAuthorizationIdQueryParameterName(string $serviceType): string
     {
@@ -223,32 +178,30 @@ abstract class OAuthClient
      * Therefore the grant type must be Authorization::GRANT_CLIENT_CREDENTIALS. You need to specify the
      * client identifier and client secret and may optionally specify a scope.
      *
-     * @param string $serviceName
-     * @param string $clientId Client ID
-     * @param string $clientSecret Client Secret
-     * @param string $scope Scope which may consist of multiple identifiers, separated by comma
-     * @param array $additionalParameters Additional parameters to provide in the request body while requesting the token. For example ['audience' => 'https://www.example.com/api/v1']
-     * @return void
+     * - The scope which may consist of multiple identifiers, separated by comma.
+     * - Additional parameters to provide in the request body while requesting the token, like ['audience' => 'https://www.example.com/api/v1']
+     *
      * @throws IdentityProviderException
+     * @throws GuzzleException
      */
     public function requestAccessToken(string $serviceName, string $clientId, string $clientSecret, string $scope,  array $additionalParameters = []): void
     {
         $authorizationId = Authorization::generateAuthorizationIdForClientCredentialsGrant($serviceName, $clientId, $clientSecret, $scope, $additionalParameters);
-        $this->logger->info(sprintf('OAuth (%s): Retrieving access token using client credentials grant for client "%s" using a %s bytes long secret. (authorization id: %s)', $this->getServiceType(), $clientId, strlen($clientSecret), $authorizationId));
+        $this->logger->info(sprintf('OAuth (%s): Retrieving access token using client credentials grant for client "%s" using a %s bytes long secret. (authorization id: %s)', static::getServiceType(), $clientId, strlen($clientSecret), $authorizationId));
 
         $existingAuthorization = $this->getAuthorization($authorizationId);
         if ($existingAuthorization !== null) {
             $this->entityManager->remove($existingAuthorization);
             $this->entityManager->flush();
 
-            $this->logger->info(sprintf('OAuth (%s): Removed old OAuth token for client "%s". (authorization id: %s)', $this->getServiceType(), $clientId, $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
+            $this->logger->info(sprintf('OAuth (%s): Removed old OAuth token for client "%s". (authorization id: %s)', static::getServiceType(), $clientId, $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
         }
 
         $accessToken = $this->createOAuthProvider($clientId, $clientSecret)->getAccessToken(Authorization::GRANT_CLIENT_CREDENTIALS, $additionalParameters);
         $authorization = new Authorization($authorizationId, $serviceName, $clientId, Authorization::GRANT_CLIENT_CREDENTIALS, $scope);
         $authorization->setAccessToken($accessToken);
 
-        $this->logger->info(sprintf('OAuth (%s): Persisted new OAuth authorization %s for client "%s" with expiry time %s. (authorization id: %s)', $this->getServiceType(), $authorizationId, $clientId, $accessToken->getExpires(), $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
+        $this->logger->info(sprintf('OAuth (%s): Persisted new OAuth authorization %s for client "%s" with expiry time %s. (authorization id: %s)', static::getServiceType(), $authorizationId, $clientId, $accessToken->getExpires(), $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
 
         $this->entityManager->persist($authorization);
         $this->entityManager->flush();
@@ -257,24 +210,22 @@ abstract class OAuthClient
     /**
      * Returns an authorization id taking the service type and service name into account.
      *
-     * @param string $clientId
-     * @return string
      * @throws OAuthClientException
      */
     public function generateAuthorizationIdForAuthorizationCodeGrant(string $clientId): string
     {
-        return Authorization::generateAuthorizationIdForAuthorizationCodeGrant($this->getServiceType(), $this->getServiceName(), $clientId);
+        return Authorization::generateAuthorizationIdForAuthorizationCodeGrant(static::getServiceType(), $this->getServiceName(), $clientId);
     }
 
     /**
      * Start OAuth authorization with the Authorization Code flow
      *
-     * @param string $clientId The client id, as provided by the OAuth server
-     * @param string $clientSecret The client secret, provided by the OAuth server
-     * @param UriInterface $returnToUri URI to return to when authorization is finished
-     * @param string $scope Scope to request for authorization. Must be scope ids separated by space, e.g. "openid profile email"
-     * @return UriInterface The URL the browser should redirect to, asking the user to authorize
+     * This returns the URL the browser should redirect to, asking the user to authorize.
+     *
+     * The scope to request for authorization must be scope ids separated by space, e.g. "openid profile email"
+     *
      * @throws OAuthClientException
+     * @throws \DateMalformedStringException
      */
     public function startAuthorization(string $clientId, string $clientSecret, UriInterface $returnToUri, string $scope): UriInterface
     {
@@ -286,6 +237,8 @@ abstract class OAuthClient
      * Start OAuth authorization with the Authorization Code flow
      * based on a specified authorization identifier.
      *
+     * This returns the URL the browser should redirect to, asking the user to authorize.
+     *
      * Note that, if you use this method, it is your responsibility to provide a
      * meaningful authorization id. You might weaken the security of your
      * application if you use an id which is deterministic or can be guessed by
@@ -293,21 +246,19 @@ abstract class OAuthClient
      *
      * If in doubt, always use startAuthorization() instead.
      *
-     * @param string $clientId The client id, as provided by the OAuth server
-     * @param string $clientSecret The client secret, provided by the OAuth server
-     * @param UriInterface $returnToUri URI to return to when authorization is finished
-     * @param string $scope Scope to request for authorization. Must be scope ids separated by space, e.g. "openid profile email"
-     * @return UriInterface The URL the browser should redirect to, asking the user to authorize
+     * The scope to request for authorization must be scope ids separated by space, e.g. "openid profile email"
+     *
      * @throws OAuthClientException
+     * @throws \DateMalformedStringException
      */
     public function startAuthorizationWithId(string $authorizationId, string $clientId, string $clientSecret, UriInterface $returnToUri, string $scope): UriInterface
     {
-        $authorization = new Authorization($authorizationId, $this->getServiceType(), $clientId, Authorization::GRANT_AUTHORIZATION_CODE, $scope);
+        $authorization = new Authorization($authorizationId, static::getServiceType(), $clientId, Authorization::GRANT_AUTHORIZATION_CODE, $scope);
         if ($this->defaultTokenLifetime !== null) {
             $authorization->setExpires(new \DateTimeImmutable('+ ' . $this->defaultTokenLifetime . ' seconds'));
         }
 
-        $this->logger->info(sprintf('OAuth (%s): Starting authorization %s using client id "%s", a %s bytes long secret and scope "%s".', $this->getServiceType(), $authorization->getAuthorizationId(), $clientId, strlen($clientSecret), $scope));
+        $this->logger->info(sprintf('OAuth (%s): Starting authorization %s using client id "%s", a %s bytes long secret and scope "%s".', static::getServiceType(), $authorization->getAuthorizationId(), $clientId, strlen($clientSecret), $scope));
 
         try {
             $oldAuthorization = $this->entityManager->find(Authorization::class, $authorization->getAuthorizationId());
@@ -316,15 +267,15 @@ abstract class OAuthClient
             }
             $this->entityManager->persist($authorization);
             $this->entityManager->flush();
-        } catch (ORMException $exception) {
-            throw new OAuthClientException(sprintf('OAuth (%s): Failed storing authorization in database: %s', $this->getServiceType(), $exception->getMessage()), 1568727133);
+        } catch (\Exception $exception) {
+            throw new OAuthClientException(sprintf('OAuth (%s): Failed storing authorization in database: %s', static::getServiceType(), $exception->getMessage()), 1568727133);
         }
 
         $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
         $authorizationUri = new Uri($oAuthProvider->getAuthorizationUrl(['scope' => $scope]));
 
         if ($clientId === $clientSecret) {
-            $this->logger->error(sprintf('OAuth (%s): Client ID and Client secret are the same! Please check your configuration.', $this->getServiceType()));
+            $this->logger->error(sprintf('OAuth (%s): Client ID and Client secret are the same! Please check your configuration.', static::getServiceType()));
         }
 
         try {
@@ -338,7 +289,7 @@ abstract class OAuthClient
                 ]
             );
         } catch (Exception $exception) {
-            throw new OAuthClientException(sprintf('OAuth (%s): Failed setting cache entry for authorization: %s', $this->getServiceType(), $exception->getMessage()), 1560178858);
+            throw new OAuthClientException(sprintf('OAuth (%s): Failed setting cache entry for authorization: %s', static::getServiceType(), $exception->getMessage()), 1560178858);
         }
 
         return $authorizationUri;
@@ -347,11 +298,8 @@ abstract class OAuthClient
     /**
      * Finish an OAuth authorization with the Authorization Code flow
      *
-     * @param string $stateIdentifier The state identifier, passed back by the OAuth server as the "state" parameter
-     * @param string $code The authorization code given by the OAuth server
-     * @param string $scope The scope granted by the OAuth server
-     * @return UriInterface The URI to return to
      * @throws OAuthClientException
+     * @throws GuzzleException
      */
     public function finishAuthorization(string $stateIdentifier, string $code, string $scope): UriInterface
     {
@@ -366,20 +314,20 @@ abstract class OAuthClient
         $clientSecret = $stateFromCache['clientSecret'];
         $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
 
-        $this->logger->info(sprintf('OAuth (%s): Finishing authorization for client "%s", authorization id "%s", using state %s.', $this->getServiceType(), $clientId, $authorizationId, $stateIdentifier));
+        $this->logger->info(sprintf('OAuth (%s): Finishing authorization for client "%s", authorization id "%s", using state %s.', static::getServiceType(), $clientId, $authorizationId, $stateIdentifier));
         try {
             $authorization = $this->entityManager->find(Authorization::class, $authorizationId);
             if (!$authorization instanceof Authorization) {
-                throw new OAuthClientException(sprintf('OAuth2 (%s): Finishing authorization failed because authorization %s could not be retrieved from the database.', $this->getServiceType(), $authorizationId), 1568710771);
+                throw new OAuthClientException(sprintf('OAuth2 (%s): Finishing authorization failed because authorization %s could not be retrieved from the database.', static::getServiceType(), $authorizationId), 1568710771);
             }
 
             if ($authorization->getGrantType() !== Authorization::GRANT_AUTHORIZATION_CODE) {
-                throw new OAuthClientException(sprintf('OAuth2 (%s): Finishing authorization failed because authorization %s does not have the authorization code flow type!', $this->getServiceType(), $authorizationId), 1597312780);
+                throw new OAuthClientException(sprintf('OAuth2 (%s): Finishing authorization failed because authorization %s does not have the authorization code flow type!', static::getServiceType(), $authorizationId), 1597312780);
             }
 
-            $this->logger->debug(sprintf('OAuth (%s): Retrieving an OAuth access token for authorization "%s" in exchange for the code %s', $this->getServiceType(), $authorizationId, str_repeat('*', strlen($code) - 3) . substr($code, -3, 3)));
+            $this->logger->debug(sprintf('OAuth (%s): Retrieving an OAuth access token for authorization "%s" in exchange for the code %s', static::getServiceType(), $authorizationId, str_repeat('*', strlen($code) - 3) . substr($code, -3, 3)));
             $accessToken = $oAuthProvider->getAccessToken(Authorization::GRANT_AUTHORIZATION_CODE, ['code' => $code]);
-            $this->logger->info(sprintf('OAuth (%s): Persisting OAuth token for authorization "%s" with expiry time %s.', $this->getServiceType(), $authorizationId, $accessToken->getExpires()));
+            $this->logger->info(sprintf('OAuth (%s): Persisting OAuth token for authorization "%s" with expiry time %s.', static::getServiceType(), $authorizationId, $accessToken->getExpires()));
 
             $authorization->setAccessToken($accessToken);
 
@@ -395,54 +343,14 @@ abstract class OAuthClient
         }
 
         $returnToUri = new Uri($stateFromCache['returnToUri']);
-        $returnToUri = $returnToUri->withQuery(trim($returnToUri->getQuery() . '&' . self::generateAuthorizationIdQueryParameterName($this->getServiceType()) . '=' . $authorizationId, '&'));
+        $returnToUri = $returnToUri->withQuery(trim($returnToUri->getQuery() . '&' . self::generateAuthorizationIdQueryParameterName(static::getServiceType()) . '=' . $authorizationId, '&'));
 
-        $this->logger->debug(sprintf('OAuth (%s): Finished authorization "%s", $returnToUri is %s.', $this->getServiceType(), $authorizationId, $returnToUri));
-        return $returnToUri;
-    }
-
-    /**
-     * Refresh an OAuth authorization
-     *
-     * @param string $authorizationId
-     * @param string $clientId
-     * @param string $returnToUri
-     * @return string
-     * @throws OAuthClientException
-     */
-    public function refreshAuthorization(string $authorizationId, string $clientId, string $returnToUri): string
-    {
-        throw new OAuthClientException('refreshAuthorization is currently not implemented', 1602519541);
-
-        $authorization = $this->entityManager->find(Authorization::class, ['authorizationId' => $authorizationId]);
-        if (!$authorization instanceof Authorization) {
-            throw new OAuthClientException(sprintf('OAuth2: Could not refresh OAuth token because authorization %s was not found in our database.', $authorization), 1505317044316);
-        }
-        $oAuthProvider = $this->createOAuthProvider($clientId, $authorization->getClientSecret()); // FIXME
-
-        $this->logger->info(sprintf('OAuth (%s): Refreshing authorization %s for client "%s" using a %s bytes long secret and refresh token "%s".', $this->getServiceType(), $authorizationId, $clientId, strlen($authorization->getClientSecret()), $authorization->refreshToken));
-
-        try {
-            $accessToken = $oAuthProvider->getAccessToken('refresh_token', ['refresh_token' => $authorization->refreshToken]);
-            $authorization->accessToken = $accessToken->getToken();
-            $authorization->setExpires($accessToken->getExpires() ? \DateTimeImmutable::createFromFormat('U', $accessToken->getExpires()) : null);
-
-            $this->logger->debug(sprintf($this->getServiceType() . ': New access token is "%s", refresh token is "%s".', $authorization->accessToken, $authorization->refreshToken));
-
-            $this->entityManager->persist($authorization);
-            $this->entityManager->flush();
-        } catch (IdentityProviderException $exception) {
-            throw new OAuthClientException($exception->getMessage(), 1511187196454, $exception);
-        }
-
+        $this->logger->debug(sprintf('OAuth (%s): Finished authorization "%s", $returnToUri is %s.', static::getServiceType(), $authorizationId, $returnToUri));
         return $returnToUri;
     }
 
     /**
      * Returns the specified Authorization record, if it exists
-     *
-     * @param string $authorizationId
-     * @return Authorization|null
      */
     public function getAuthorization(string $authorizationId): ?Authorization
     {
@@ -452,9 +360,6 @@ abstract class OAuthClient
 
     /**
      * Removes the specified Authorization record
-     *
-     * @param string $authorizationId
-     * @return void
      */
     public function removeAuthorization(string $authorizationId): void
     {
@@ -462,67 +367,10 @@ abstract class OAuthClient
         if ($existingAuthorization !== null) {
             $this->entityManager->remove($existingAuthorization);
             $this->entityManager->flush();
-            $this->logger->debug(sprintf('OAuth (%s): Removed authorization id %s', $this->getServiceType(), $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
+            $this->logger->debug(sprintf('OAuth (%s): Removed authorization id %s', static::getServiceType(), $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
         }
     }
 
-    /**
-     * Returns a prepared request to an OAuth 2.0 service provider using Bearer token authentication
-     *
-     * @param Authorization $authorization
-     * @param string $relativeUri A relative URI of the web server, prepended by the base URI
-     * @param string $method The HTTP method, for example "GET" or "POST"
-     * @param array $bodyFields Associative array of body fields to send (optional)
-     * @return RequestInterface
-     * @throws OAuthClientException
-     */
-    public function getAuthenticatedRequest(Authorization $authorization, string $relativeUri, string $method = 'GET', array $bodyFields = []): RequestInterface
-    {
-        throw new OAuthClientException('getAuthenticatedRequest is currently not implemented', 1631826501);
-
-        $accessToken = $authorization->getAccessToken();
-        if ($accessToken === null) {
-            throw new OAuthClientException(sprintf($this->getServiceType() . 'Failed getting an authenticated request for client ID "%s" because the authorization contained no access token', $authorization->getClientId()), 1589300319);
-        }
-
-        $oAuthProvider = $this->createOAuthProvider($authorization->getClientId(), $authorization->getClientSecret());
-        return $oAuthProvider->getAuthenticatedRequest(
-            $method,
-            $this->getBaseUri() . $relativeUri,
-            $authorization->getAccessToken(),
-            [
-                'headers' => [
-                    'Content-Type' => 'application/json'
-                ],
-                'body' => ($bodyFields !== [] ? \GuzzleHttp\json_encode($bodyFields) : '')
-            ]
-        );
-    }
-
-    /**
-     * Sends an HTTP request to an OAuth 2.0 service provider using Bearer token authentication
-     *
-     * @param Authorization $authorization
-     * @param string $relativeUri
-     * @param string $method
-     * @param array $bodyFields
-     * @return Response
-     * @throws GuzzleException
-     * @throws OAuthClientException
-     */
-    public function sendAuthenticatedRequest(Authorization $authorization, string $relativeUri, string $method = 'GET', array $bodyFields = []): Response
-    {
-        throw new OAuthClientException('sendAuthenticatedRequest is currently not implemented', 1631826483);
-
-        if ($this->httpClient === null) {
-            $this->httpClient = new Client(['allow_redirects' => false]);
-        }
-        return $this->httpClient->send($this->getAuthenticatedRequest($authorization, $relativeUri, $method, $bodyFields));
-    }
-
-    /**
-     * @return string
-     */
     public function renderFinishAuthorizationUri(): string
     {
         $currentRequestHandler = $this->bootstrap->getActiveRequestHandler();
@@ -539,12 +387,11 @@ abstract class OAuthClient
         $this->uriBuilder->setCreateAbsoluteUri(true);
 
         try {
-            $uri = $this->uriBuilder
+            return $this->uriBuilder
                 ->reset()
                 ->setCreateAbsoluteUri(true)
-                ->uriFor('finishAuthorization', ['serviceType' => $this->getServiceType(), 'serviceName' => $this->getServiceName()], 'OAuth', 'Flownative.OAuth2.Client');
-            return $uri;
-        } catch (MissingActionNameException $e) {
+                ->uriFor('finishAuthorization', ['serviceType' => static::getServiceType(), 'serviceName' => $this->getServiceName()], 'OAuth', 'Flownative.OAuth2.Client');
+        } catch (MissingActionNameException|HttpException) {
             return '';
         }
     }
@@ -552,10 +399,6 @@ abstract class OAuthClient
     /**
      * Helper method to set metadata on an Authorization instance. Changes are
      * persisted immediately.
-     *
-     * @param string $authorizationId
-     * @param string $metadata
-     * @return void
      */
     public function setAuthorizationMetadata(string $authorizationId, string $metadata): void
     {
@@ -569,11 +412,6 @@ abstract class OAuthClient
         $this->entityManager->flush();
     }
 
-    /**
-     * @param string $clientId
-     * @param string $clientSecret
-     * @return GenericProvider
-     */
     protected function createOAuthProvider(string $clientId, string $clientSecret): GenericProvider
     {
         return new GenericProvider([
@@ -588,10 +426,6 @@ abstract class OAuthClient
         ]);
     }
 
-    /**
-     * @return void
-     * @throws InvalidQueryException
-     */
     protected function removeExpiredAuthorizations(): void
     {
         $query = new Query(Authorization::class);
@@ -609,8 +443,6 @@ abstract class OAuthClient
      *
      * This method must not be called manually – it is invoked by Flow's object
      * management.
-     *
-     * @return void
      */
     public function shutdownObject(): void
     {
@@ -622,7 +454,7 @@ abstract class OAuthClient
                 $this->removeExpiredAuthorizations();
                 $this->stateCache->collectGarbage();
             }
-        } catch (\Exception $e) {
+        } catch (\Exception) {
         }
     }
 }

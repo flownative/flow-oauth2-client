@@ -11,10 +11,6 @@ developed as a backing library for the
 That's why documentation for this package is a bit sparse at the moment
 and examples for generic use are missing.
 
-At the time of writing (November 2020), this package is actively
-maintained and there are plans for improving functionality, test
-coverage and documentation.
-
 ## Authorizations
 
 This package stores states and tokens as "authorizations" in a dedicated
