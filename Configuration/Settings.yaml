@@ -10,18 +10,18 @@ Flownative:
         #   20    (would be a 20% chance to clean up)
         #    0.42 (would be a 0.42 % chance to clean up)
         probability: 1
+
       services: []
 #        - name: 'flownative-beach'
 #          className: 'Flownative\Beach\BeachClient'
-      token:
 
+      token:
         # default lifetime of new tokens in seconds
         defaultLifetime: 600 # 600 seconds = 10 minutes
-      encryption:
 
+      encryption:
         # A base64-encoded random key, for example generated with ./flow oauth:generateencryptionkey
         base64EncodedKey: ''
-
         # AEAD construction to use; currently only "ChaCha20-Poly1305-IETF" is supported
         construction: 'ChaCha20-Poly1305-IETF'
 

@@ -14,9 +14,6 @@ namespace Flownative\OAuth2\Client;
  */
 
 use Doctrine\ORM\Mapping as ORM;
-use Exception;
-use InvalidArgumentException;
-use JsonException;
 use League\OAuth2\Client\Token\AccessToken;
 use League\OAuth2\Client\Token\AccessTokenInterface;
 use Neos\Flow\Annotations as Flow;
@@ -89,13 +86,6 @@ class Authorization
      */
     protected $encryptionService;
 
-    /**
-     * @param string $authorizationId
-     * @param string $serviceName
-     * @param string $clientId
-     * @param string $grantType
-     * @param string $scope
-     */
     public function __construct(string $authorizationId, string $serviceName, string $clientId, string $grantType, string $scope)
     {
         $this->authorizationId = $authorizationId;
@@ -105,9 +95,6 @@ class Authorization
         $this->scope = $scope;
     }
 
-    /**
-     * @param EncryptionService $encryptionService
-     */
     public function injectEncryptionService(EncryptionService $encryptionService): void
     {
         $this->encryptionService = $encryptionService;
@@ -116,10 +103,6 @@ class Authorization
     /**
      * Calculate an authorization identifier (for this model) from the given parameters.
      *
-     * @param string $serviceType
-     * @param string $serviceName
-     * @param string $clientId
-     * @return string
      * @throws OAuthClientException
      */
     public static function generateAuthorizationIdForAuthorizationCodeGrant(string $serviceType, string $serviceName, string $clientId): string
@@ -127,7 +110,7 @@ class Authorization
         try {
             return $serviceType . '-' . $serviceName . '-' . Uuid::uuid4()->toString();
             // @codeCoverageIgnoreStart
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
             throw new OAuthClientException(sprintf('Failed generating authorization id for %s %s', $serviceName, $clientId), 1597311416, $e);
         }
         // @codeCoverageIgnoreEnd
@@ -135,109 +118,69 @@ class Authorization
 
     /**
      * Calculate an authorization identifier (for this model) from the given parameters.
-     *
-     * @param string $serviceName
-     * @param string $clientId
-     * @param string $clientSecret
-     * @param string $scope
-     * @param array $additionalParameters
-     * @return string
      */
     public static function generateAuthorizationIdForClientCredentialsGrant(string $serviceName, string $clientId, string $clientSecret, string $scope, array $additionalParameters = []): string
     {
         try {
             $additionalParametersJson = json_encode($additionalParameters, JSON_THROW_ON_ERROR);
-        } catch (JsonException $e) {
+        } catch (\JsonException) {
             $additionalParametersJson = '';
         }
         return hash('sha512', $serviceName . $clientId . $clientSecret . $scope . $additionalParametersJson . self::GRANT_CLIENT_CREDENTIALS);
     }
 
-    /**
-     * @return string
-     */
     public function getAuthorizationId(): string
     {
         return $this->authorizationId;
     }
 
-    /**
-     * @return string
-     */
     public function getServiceName(): string
     {
         return $this->serviceName;
     }
 
-    /**
-     * @return string
-     */
     public function getClientId(): string
     {
         return $this->clientId;
     }
 
-    /**
-     * @return string
-     */
     public function getGrantType(): string
     {
         return $this->grantType;
     }
 
-    /**
-     * @return string
-     * @return void
-     */
     public function getScope(): string
     {
         return $this->scope;
     }
 
-    /**
-     * @param string $scope
-     */
     public function setScope(string $scope): void
     {
         $this->scope = $scope;
     }
 
-    /**
-     * @return string
-     */
     public function getSerializedAccessToken(): string
     {
         return $this->serializedAccessToken ?? '';
     }
 
-    /**
-     * @param string $serializedAccessToken
-     */
     public function setSerializedAccessToken(string $serializedAccessToken): void
     {
         $this->serializedAccessToken = $serializedAccessToken;
     }
 
-    /**
-     * @return string
-     */
     public function getEncryptedSerializedAccessToken(): string
     {
         return $this->encryptedSerializedAccessToken ?? '';
     }
 
-    /**
-     * @param string $encryptedSerializedAccessToken
-     */
     public function setEncryptedSerializedAccessToken(string $encryptedSerializedAccessToken): void
     {
         $this->encryptedSerializedAccessToken = $encryptedSerializedAccessToken;
     }
 
     /**
-     * @param AccessTokenInterface $accessToken
-     * @return void
-     * @throws InvalidArgumentException
+     * @throws \InvalidArgumentException
      */
     public function setAccessToken(AccessTokenInterface $accessToken): void
     {
@@ -248,19 +191,19 @@ class Authorization
 
         try {
             if ($this->encryptionService !== null && $this->encryptionService->isConfigured()) {
-                $this->encryptedSerializedAccessToken = $this->encryptionService->encryptAndEncode(json_encode($accessToken, JSON_THROW_ON_ERROR, 512));
+                $this->encryptedSerializedAccessToken = $this->encryptionService->encryptAndEncode(json_encode($accessToken, JSON_THROW_ON_ERROR));
             } else {
-                $this->serializedAccessToken = json_encode($accessToken, JSON_THROW_ON_ERROR, 512);
+                $this->serializedAccessToken = json_encode($accessToken, JSON_THROW_ON_ERROR);
             }
             // @codeCoverageIgnoreStart
-        } catch (JsonException | Exception $e) {
-            throw new InvalidArgumentException('Failed serializing the given access token', 1602515717, $e);
+        } catch (\JsonException | \Exception $e) {
+            throw new \InvalidArgumentException('Failed serializing the given access token', 1602515717, $e);
             // @codeCoverageIgnoreEnd
         }
     }
 
     /**
-     * @return AccessToken
+     * @throws \SodiumException
      */
     public function getAccessToken(): ?AccessToken
     {
@@ -279,22 +222,16 @@ class Authorization
                 $deserializedAccessToken = json_decode($this->serializedAccessToken, true, 512, JSON_THROW_ON_ERROR);
                 return new AccessToken($deserializedAccessToken);
             }
-        } catch (JsonException $e) {
+        } catch (\JsonException) {
         }
         return null;
     }
 
-    /**
-     * @return \DateTimeImmutable
-     */
     public function getExpires(): ?\DateTimeImmutable
     {
         return $this->expires;
     }
 
-    /**
-     * @param \DateTimeImmutable $expires
-     */
     public function setExpires(\DateTimeImmutable $expires): void
     {
         $this->expires = $expires;

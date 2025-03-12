@@ -1,8 +1,11 @@
 <?php
+declare(strict_types=1);
+
 namespace Flownative\OAuth2\Client\Controller;
 
 use Flownative\OAuth2\Client\OAuthClient;
 use Flownative\OAuth2\Client\OAuthClientException;
+use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Psr7\Uri;
 use Neos\Flow\Annotations\CompileStatic;
 use Neos\Flow\Mvc\Controller\ActionController;
@@ -13,10 +16,7 @@ use Neos\Flow\Reflection\ReflectionService;
 
 final class OAuthController extends ActionController
 {
-    /**
-     * @var array
-     */
-    private $serviceTypes;
+    private array $serviceTypes;
 
     /**
      * @return void
@@ -38,6 +38,7 @@ final class OAuthController extends ActionController
      * @throws OAuthClientException
      * @throws StopActionException
      * @throws UnsupportedRequestTypeException
+     * @throws \DateMalformedStringException
      */
     public function startAuthorizationAction(string $clientId, string $clientSecret, Uri $returnToUri, string $serviceType, string $serviceName, string $scope): void
     {
@@ -66,6 +67,7 @@ final class OAuthController extends ActionController
      * @throws OAuthClientException
      * @throws StopActionException
      * @throws UnsupportedRequestTypeException
+     * @throws GuzzleException
      */
     public function finishAuthorizationAction(string $serviceType, string $serviceName, string $state, string $code, string $scope = ''): void
     {
