@@ -90,16 +90,14 @@ $metadata = json_decode($authorization->getMetadata());
 By default, access tokens are serialized and stored unencrypted in the
 "authorizations" database table. You can improve the security of your
 application by enabling the encrypted-at-rest feature of this package.
-when active, it will encrypt tokens before storing them in the database
-and decrypt them automatically when they are retrieved. The secret key
+When active, it encrypts tokens before storing them in the database and
+decrypts them automatically when they are retrieved. The secret key
 which is needed for encryption and decryption is not stored in the
 database.
 
 This package uses the "ChaCha20-Poly1305-IETF" construction for
-authenticated encryption / decryption of serialized tokens. It uses the
-["sodium" PHP extension](https://www.php.net/sodium) if installed, or
-[a polyfill implementation](https://packagist.org/packages/paragonie/sodium_compat)
-in pure PHP.
+authenticated encryption / decryption of serialized tokens, provided by
+the ["sodium" PHP extension](https://www.php.net/sodium).
 
 ### Generating a Secret Key
 
