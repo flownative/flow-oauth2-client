@@ -34,6 +34,8 @@ abstract class OAuthClient
      */
     public const AUTHORIZATION_ID_QUERY_PARAMETER_NAME_PREFIX = 'flownative_oauth2_authorization_id';
 
+    private const array RESERVED_AUTHORIZATION_PARAMETER_NAMES = ['client_id', 'client_secret', 'redirect_uri', 'response_type', 'response_mode', 'scope', 'state', 'code_challenge', 'code_challenge_method', 'request', 'request_uri'];
+
     protected string $serviceName;
 
     /**
@@ -224,13 +226,14 @@ abstract class OAuthClient
      *
      * The scope to request for authorization must be scope ids separated by space, e.g. "openid profile email"
      *
+     * @param array $authorizationParameters Additional query parameters for the authorization endpoint, for example ['prompt' => 'login']
      * @throws OAuthClientException
      * @throws \DateMalformedStringException
      */
-    public function startAuthorization(string $clientId, string $clientSecret, UriInterface $returnToUri, string $scope): UriInterface
+    public function startAuthorization(string $clientId, string $clientSecret, UriInterface $returnToUri, string $scope, array $authorizationParameters = []): UriInterface
     {
         $authorizationId = $this->generateAuthorizationIdForAuthorizationCodeGrant($clientId);
-        return $this->startAuthorizationWithId($authorizationId, $clientId, $clientSecret, $returnToUri, $scope);
+        return $this->startAuthorizationWithId($authorizationId, $clientId, $clientSecret, $returnToUri, $scope, $authorizationParameters);
     }
 
     /**
@@ -248,11 +251,17 @@ abstract class OAuthClient
      *
      * The scope to request for authorization must be scope ids separated by space, e.g. "openid profile email"
      *
+     * @param array $authorizationParameters Additional query parameters for the authorization endpoint, for example ['prompt' => 'login']
      * @throws OAuthClientException
      * @throws \DateMalformedStringException
      */
-    public function startAuthorizationWithId(string $authorizationId, string $clientId, string $clientSecret, UriInterface $returnToUri, string $scope): UriInterface
+    public function startAuthorizationWithId(string $authorizationId, string $clientId, string $clientSecret, UriInterface $returnToUri, string $scope, array $authorizationParameters = []): UriInterface
     {
+        $reservedParameterNames = array_intersect(array_keys($authorizationParameters), self::RESERVED_AUTHORIZATION_PARAMETER_NAMES);
+        if ($reservedParameterNames !== []) {
+            throw new \InvalidArgumentException(sprintf('OAuth (%s): The authorization parameters must not contain "%s", because the client sets them itself.', static::getServiceType(), implode('", "', $reservedParameterNames)), 1789131855);
+        }
+
         $authorization = new Authorization($authorizationId, static::getServiceType(), $clientId, Authorization::GRANT_AUTHORIZATION_CODE, $scope);
         if ($this->defaultTokenLifetime !== null) {
             $authorization->setExpires(new \DateTimeImmutable('+ ' . $this->defaultTokenLifetime . ' seconds'));
@@ -272,7 +281,7 @@ abstract class OAuthClient
         }
 
         $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
-        $authorizationUri = new Uri($oAuthProvider->getAuthorizationUrl(['scope' => $scope]));
+        $authorizationUri = new Uri($oAuthProvider->getAuthorizationUrl(array_merge($authorizationParameters, ['scope' => $scope])));
 
         if ($clientId === $clientSecret) {
             $this->logger->error(sprintf('OAuth (%s): Client ID and Client secret are the same! Please check your configuration.', static::getServiceType()));
