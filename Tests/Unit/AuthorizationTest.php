@@ -123,7 +123,7 @@ class AuthorizationTest extends TestCase
     }
 
     #[Test]
-    public function generateAuthorizationIdForClientCredentialsGrantReturnsSha1(): void
+    public function generateAuthorizationIdForClientCredentialsGrantReturnsSha512Hash(): void
     {
         $authorizationId = Authorization::generateAuthorizationIdForClientCredentialsGrant(
             'oidc_test', 'ac36cGG4d2Cef1DeuevA7T1u7V4WOUI14', 'CMc4EHfyMPLw}Tua%rnyxCnrTWMuX3', 'oidc profile', ['audience' => 'https://www.example.com']
@@ -175,6 +175,28 @@ class AuthorizationTest extends TestCase
         $authorization = new Authorization('3d47f0eafd6a8b49e32b55103d817b6e4ef489e7', 'service', 'clientId', Authorization::GRANT_AUTHORIZATION_CODE, '');
         $authorization->setScope('some-custom-scope');
         self::assertSame('some-custom-scope', $authorization->getScope());
+    }
+
+    #[Test]
+    public function setAccessTokenTakesExpirationTimeOfToken(): void
+    {
+        $accessToken = $this->createValidAccessToken();
+        $authorization = new Authorization('3d47f0eafd6a8b49e32b55103d817b6e4ef489e7', 'service', 'clientId', Authorization::GRANT_AUTHORIZATION_CODE, '');
+
+        $authorization->setAccessToken($accessToken);
+
+        self::assertSame($accessToken->getExpires(), $authorization->getExpires()->getTimestamp());
+    }
+
+    #[Test]
+    public function metadataCanBeStoredWithAuthorization(): void
+    {
+        $authorization = new Authorization('3d47f0eafd6a8b49e32b55103d817b6e4ef489e7', 'service', 'clientId', Authorization::GRANT_AUTHORIZATION_CODE, '');
+        self::assertNull($authorization->getMetadata());
+
+        $authorization->setMetadata('{"some":"metadata"}');
+
+        self::assertSame('{"some":"metadata"}', $authorization->getMetadata());
     }
 
     private function createValidAccessToken(): AccessToken
