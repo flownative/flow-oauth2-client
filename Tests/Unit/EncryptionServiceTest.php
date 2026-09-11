@@ -89,6 +89,28 @@ class EncryptionServiceTest extends TestCase
     }
 
     #[Test]
+    public function initializeObjectRejectsKeyWhichIsNotBase64Encoded(): void
+    {
+        $encryptionService = new EncryptionService();
+        (new ReflectionProperty($encryptionService, 'base64EncodedKey'))->setValue($encryptionService, 'not base64!');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionCode(1604935600);
+        $encryptionService->initializeObject();
+    }
+
+    #[Test]
+    public function initializeObjectRejectsKeyOfWrongLength(): void
+    {
+        $encryptionService = new EncryptionService();
+        (new ReflectionProperty($encryptionService, 'base64EncodedKey'))->setValue($encryptionService, base64_encode('too short'));
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionCode(1789145563);
+        $encryptionService->initializeObject();
+    }
+
+    #[Test]
     public function encryptionIsNotConfiguredWithoutKey(): void
     {
         $encryptionService = new EncryptionService();
