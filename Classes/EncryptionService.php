@@ -5,14 +5,10 @@ namespace Flownative\OAuth2\Client;
 
 use Neos\Flow\Annotations as Flow;
 
-/**
- * @Flow\Scope("singleton")
- */
+#[Flow\Scope('singleton')]
 class EncryptionService {
 
-    /**
-     * @Flow\InjectConfiguration(path="encryption.base64EncodedKey")
-     */
+    #[Flow\InjectConfiguration(path: 'encryption.base64EncodedKey')]
     protected string $base64EncodedKey = '';
 
     protected string $key;
