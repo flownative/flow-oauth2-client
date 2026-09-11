@@ -1,6 +1,7 @@
 <?php
 namespace Neos\Flow\Persistence\Doctrine\Migrations;
 
+use Doctrine\DBAL\Platforms\MySQLPlatform;
 use Doctrine\Migrations\AbstractMigration;
 use Doctrine\DBAL\Schema\Schema;
 
@@ -21,7 +22,7 @@ class Version20171120150210 extends AbstractMigration
      */
     public function up(Schema $schema): void 
     {
-        $this->abortIf($this->connection->getDatabasePlatform()->getName() != 'mysql', 'Migration can only be executed safely on "mysql".');
+        $this->abortIf(!($this->connection->getDatabasePlatform() instanceof MySQLPlatform), 'Migration can only be executed safely on "mysql".');
         $this->addSql('CREATE TABLE flownative_oauth2_client_oauthtoken (clientid VARCHAR(255) NOT NULL, servicename VARCHAR(255) NOT NULL, clientsecret VARCHAR(255) NOT NULL, accesstoken VARCHAR(255) NOT NULL, refreshtoken VARCHAR(255) NOT NULL, expires DATETIME DEFAULT NULL, PRIMARY KEY(clientid, servicename)) DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci ENGINE = InnoDB');
     }
 
@@ -31,7 +32,7 @@ class Version20171120150210 extends AbstractMigration
      */
     public function down(Schema $schema): void 
     {
-        $this->abortIf($this->connection->getDatabasePlatform()->getName() != 'mysql', 'Migration can only be executed safely on "mysql".');
+        $this->abortIf(!($this->connection->getDatabasePlatform() instanceof MySQLPlatform), 'Migration can only be executed safely on "mysql".');
         $this->addSql('DROP TABLE flownative_oauth2_client_oauthtoken');
     }
 }

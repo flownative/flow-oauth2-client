@@ -1,6 +1,7 @@
 <?php
 namespace Neos\Flow\Persistence\Doctrine\Migrations;
 
+use Doctrine\DBAL\Platforms\MySQLPlatform;
 use Doctrine\Migrations\AbstractMigration;
 use Doctrine\DBAL\Schema\Schema;
 
@@ -26,7 +27,7 @@ class Version20190610144513 extends AbstractMigration
      */
     public function up(Schema $schema): void 
     {
-        $this->abortIf($this->connection->getDatabasePlatform()->getName() != 'mysql', 'Migration can only be executed safely on "mysql".');
+        $this->abortIf(!($this->connection->getDatabasePlatform() instanceof MySQLPlatform), 'Migration can only be executed safely on "mysql".');
 
         $this->addSql('CREATE TABLE flownative_oauth2_client_authorization (authorizationid VARCHAR(255) NOT NULL, clientid VARCHAR(255) NOT NULL, servicename VARCHAR(255) NOT NULL, granttype VARCHAR(255) NOT NULL, clientsecret VARCHAR(5000) DEFAULT NULL, accesstoken VARCHAR(5000) NOT NULL, refreshtoken VARCHAR(5000) DEFAULT NULL, expires DATETIME DEFAULT NULL COMMENT \'(DC2Type:datetime_immutable)\', scope VARCHAR(255) NOT NULL, tokenvalues LONGTEXT NOT NULL COMMENT \'(DC2Type:array)\', PRIMARY KEY(authorizationid)) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci ENGINE = InnoDB');
         $this->addSql('DROP TABLE flownative_oauth2_client_oauthtoken');
@@ -40,7 +41,7 @@ class Version20190610144513 extends AbstractMigration
      */
     public function down(Schema $schema): void 
     {
-        $this->abortIf($this->connection->getDatabasePlatform()->getName() != 'mysql', 'Migration can only be executed safely on "mysql".');
+        $this->abortIf(!($this->connection->getDatabasePlatform() instanceof MySQLPlatform), 'Migration can only be executed safely on "mysql".');
 
         $this->addSql('CREATE TABLE flownative_oauth2_client_oauthtoken (clientid VARCHAR(255) NOT NULL COLLATE utf8_unicode_ci, servicename VARCHAR(255) NOT NULL COLLATE utf8_unicode_ci, clientsecret VARCHAR(5000) DEFAULT NULL COLLATE utf8_unicode_ci, accesstoken VARCHAR(5000) NOT NULL COLLATE utf8_unicode_ci, refreshtoken VARCHAR(5000) DEFAULT NULL COLLATE utf8_unicode_ci, expires DATETIME DEFAULT NULL COMMENT \'(DC2Type:datetime_immutable)\', scope VARCHAR(255) NOT NULL COLLATE utf8_unicode_ci, granttype VARCHAR(255) NOT NULL COLLATE utf8_unicode_ci, tokenvalues LONGTEXT NOT NULL COLLATE utf8_unicode_ci COMMENT \'(DC2Type:array)\', PRIMARY KEY(clientid, servicename)) DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci ENGINE = InnoDB COMMENT = \'\' ');
         $this->addSql('DROP TABLE flownative_oauth2_client_authorization');
