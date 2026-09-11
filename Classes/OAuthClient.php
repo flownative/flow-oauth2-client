@@ -34,57 +34,43 @@ abstract class OAuthClient
     /**
      * Name of the HTTP query parameter used for passing around the authorization id
      */
-    public const AUTHORIZATION_ID_QUERY_PARAMETER_NAME_PREFIX = 'flownative_oauth2_authorization_id';
+    public const string AUTHORIZATION_ID_QUERY_PARAMETER_NAME_PREFIX = 'flownative_oauth2_authorization_id';
 
     private const array RESERVED_AUTHORIZATION_PARAMETER_NAMES = ['client_id', 'client_secret', 'redirect_uri', 'response_type', 'response_mode', 'scope', 'state', 'code_challenge', 'code_challenge_method', 'request', 'request_uri'];
 
     protected string $serviceName;
 
-    /**
-     * @var UriBuilder
-     */
+    protected EntityManagerInterface $entityManager;
+
     #[Flow\Inject]
-    protected $uriBuilder;
+    protected UriBuilder $uriBuilder;
+
+    #[Flow\Inject]
+    protected Bootstrap $bootstrap;
+
+    #[Flow\Inject]
+    protected ServerRequestFactory $serverRequestFactory;
 
     /**
-     * @var Bootstrap
-     */
-    #[Flow\Inject]
-    protected $bootstrap;
-
-    /**
-     * @var ServerRequestFactory
-     */
-    #[Flow\Inject]
-    protected $serverRequestFactory;
-
-    /**
-     * @var string
+     * Not typed, because the OAuth client of flownative/openidconnect-client redeclares this property without a type
+     *
+     * @var string|null
      */
     #[Flow\InjectConfiguration(path: 'http.baseUri', package: 'Neos.Flow')]
     protected $flowBaseUriSetting;
 
-    /**
-     * @var float
-     */
     #[Flow\InjectConfiguration(path: 'garbageCollection.probability', package: 'Flownative.OAuth2.Client')]
-    protected $garbageCollectionProbability;
+    protected float|int $garbageCollectionProbability = 1; # percent
 
-    /**
-     * @var int|null
-     */
     #[Flow\InjectConfiguration(path: 'token.defaultLifetime', package: 'Flownative.OAuth2.Client')]
-    protected $defaultTokenLifetime;
+    protected ?int $defaultTokenLifetime = null; # seconds; null if new tokens don't expire
 
-    protected EntityManagerInterface $entityManager;
-
-    /**
-     * @var LoggerInterface
-     */
     #[Flow\Inject]
-    protected $logger;
+    protected ?LoggerInterface $logger = null;
 
     /**
+     * Not typed, because Flow injects the cache configured in Objects.yaml lazily and the dependency proxy would not match the type
+     *
      * @var VariableFrontend
      */
     #[Flow\Inject]
@@ -191,21 +177,21 @@ abstract class OAuthClient
     public function requestAccessToken(string $serviceName, string $clientId, string $clientSecret, string $scope,  array $additionalParameters = []): void
     {
         $authorizationId = Authorization::generateAuthorizationIdForClientCredentialsGrant($serviceName, $clientId, $clientSecret, $scope, $additionalParameters);
-        $this->logger->info(sprintf('OAuth (%s): Retrieving access token using client credentials grant for client "%s" using a %s bytes long secret. (authorization id: %s)', static::getServiceType(), $clientId, strlen($clientSecret), $authorizationId));
+        $this->logger?->info(sprintf('OAuth (%s): Retrieving access token using client credentials grant for client "%s" using a %s bytes long secret. (authorization id: %s)', static::getServiceType(), $clientId, strlen($clientSecret), $authorizationId));
 
         $existingAuthorization = $this->getAuthorization($authorizationId);
         if ($existingAuthorization !== null) {
             $this->entityManager->remove($existingAuthorization);
             $this->entityManager->flush();
 
-            $this->logger->info(sprintf('OAuth (%s): Removed old OAuth token for client "%s". (authorization id: %s)', static::getServiceType(), $clientId, $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
+            $this->logger?->info(sprintf('OAuth (%s): Removed old OAuth token for client "%s". (authorization id: %s)', static::getServiceType(), $clientId, $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
         }
 
         $accessToken = $this->createOAuthProvider($clientId, $clientSecret)->getAccessToken(Authorization::GRANT_CLIENT_CREDENTIALS, $additionalParameters);
         $authorization = new Authorization($authorizationId, $serviceName, $clientId, Authorization::GRANT_CLIENT_CREDENTIALS, $scope);
         $authorization->setAccessToken($accessToken);
 
-        $this->logger->info(sprintf('OAuth (%s): Persisted new OAuth authorization %s for client "%s" with expiry time %s. (authorization id: %s)', static::getServiceType(), $authorizationId, $clientId, $accessToken->getExpires(), $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
+        $this->logger?->info(sprintf('OAuth (%s): Persisted new OAuth authorization %s for client "%s" with expiry time %s. (authorization id: %s)', static::getServiceType(), $authorizationId, $clientId, $accessToken->getExpires(), $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
 
         $this->entityManager->persist($authorization);
         $this->entityManager->flush();
@@ -269,7 +255,7 @@ abstract class OAuthClient
             $authorization->setExpires(new \DateTimeImmutable('+ ' . $this->defaultTokenLifetime . ' seconds'));
         }
 
-        $this->logger->info(sprintf('OAuth (%s): Starting authorization %s using client id "%s", a %s bytes long secret and scope "%s".', static::getServiceType(), $authorization->getAuthorizationId(), $clientId, strlen($clientSecret), $scope));
+        $this->logger?->info(sprintf('OAuth (%s): Starting authorization %s using client id "%s", a %s bytes long secret and scope "%s".', static::getServiceType(), $authorization->getAuthorizationId(), $clientId, strlen($clientSecret), $scope));
 
         try {
             $oldAuthorization = $this->entityManager->find(Authorization::class, $authorization->getAuthorizationId());
@@ -286,7 +272,7 @@ abstract class OAuthClient
         $authorizationUri = new Uri($oAuthProvider->getAuthorizationUrl(array_merge($authorizationParameters, ['scope' => $scope])));
 
         if ($clientId === $clientSecret) {
-            $this->logger->error(sprintf('OAuth (%s): Client ID and Client secret are the same! Please check your configuration.', static::getServiceType()));
+            $this->logger?->error(sprintf('OAuth (%s): Client ID and Client secret are the same! Please check your configuration.', static::getServiceType()));
         }
 
         try {
@@ -325,7 +311,7 @@ abstract class OAuthClient
         $clientSecret = $stateFromCache['clientSecret'];
         $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
 
-        $this->logger->info(sprintf('OAuth (%s): Finishing authorization for client "%s", authorization id "%s", using state %s.', static::getServiceType(), $clientId, $authorizationId, $stateIdentifier));
+        $this->logger?->info(sprintf('OAuth (%s): Finishing authorization for client "%s", authorization id "%s", using state %s.', static::getServiceType(), $clientId, $authorizationId, $stateIdentifier));
         try {
             $authorization = $this->entityManager->find(Authorization::class, $authorizationId);
             if (!$authorization instanceof Authorization) {
@@ -336,9 +322,9 @@ abstract class OAuthClient
                 throw new OAuthClientException(sprintf('OAuth2 (%s): Finishing authorization failed because authorization %s does not have the authorization code flow type!', static::getServiceType(), $authorizationId), 1597312780);
             }
 
-            $this->logger->debug(sprintf('OAuth (%s): Retrieving an OAuth access token for authorization "%s" in exchange for the code %s', static::getServiceType(), $authorizationId, str_repeat('*', strlen($code) - 3) . substr($code, -3, 3)));
+            $this->logger?->debug(sprintf('OAuth (%s): Retrieving an OAuth access token for authorization "%s" in exchange for the code %s', static::getServiceType(), $authorizationId, str_repeat('*', strlen($code) - 3) . substr($code, -3, 3)));
             $accessToken = $oAuthProvider->getAccessToken(Authorization::GRANT_AUTHORIZATION_CODE, ['code' => $code]);
-            $this->logger->info(sprintf('OAuth (%s): Persisting OAuth token for authorization "%s" with expiry time %s.', static::getServiceType(), $authorizationId, $accessToken->getExpires()));
+            $this->logger?->info(sprintf('OAuth (%s): Persisting OAuth token for authorization "%s" with expiry time %s.', static::getServiceType(), $authorizationId, $accessToken->getExpires()));
 
             $authorization->setAccessToken($accessToken);
 
@@ -356,7 +342,7 @@ abstract class OAuthClient
         $returnToUri = new Uri($stateFromCache['returnToUri']);
         $returnToUri = $returnToUri->withQuery(trim($returnToUri->getQuery() . '&' . self::generateAuthorizationIdQueryParameterName(static::getServiceType()) . '=' . $authorizationId, '&'));
 
-        $this->logger->debug(sprintf('OAuth (%s): Finished authorization "%s", $returnToUri is %s.', static::getServiceType(), $authorizationId, $returnToUri));
+        $this->logger?->debug(sprintf('OAuth (%s): Finished authorization "%s", $returnToUri is %s.', static::getServiceType(), $authorizationId, $returnToUri));
         return $returnToUri;
     }
 
@@ -378,7 +364,7 @@ abstract class OAuthClient
         if ($existingAuthorization !== null) {
             $this->entityManager->remove($existingAuthorization);
             $this->entityManager->flush();
-            $this->logger->debug(sprintf('OAuth (%s): Removed authorization id %s', static::getServiceType(), $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
+            $this->logger?->debug(sprintf('OAuth (%s): Removed authorization id %s', static::getServiceType(), $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
         }
     }
 

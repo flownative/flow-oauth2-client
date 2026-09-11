@@ -25,8 +25,8 @@ use Ramsey\Uuid\Uuid;
 #[Flow\Entity]
 class Authorization
 {
-    public const GRANT_AUTHORIZATION_CODE = 'authorization_code';
-    public const GRANT_CLIENT_CREDENTIALS = 'client_credentials';
+    public const string GRANT_AUTHORIZATION_CODE = 'authorization_code';
+    public const string GRANT_CLIENT_CREDENTIALS = 'client_credentials';
 
     /**
      * @var string
