@@ -18,8 +18,15 @@ require_once('Fixtures/OAuthTestClient.php');
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\Persistence\ObjectRepository;
 use Flownative\OAuth2\Client\Tests\Unit\Fixtures\OAuthTestClient;
+use GuzzleHttp\Psr7\Uri;
+use InvalidArgumentException;
+use Neos\Cache\Backend\TransientMemoryBackend;
+use Neos\Cache\Frontend\VariableFrontend;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\LoggerInterface;
+use ReflectionProperty;
 
 class OAuthClientTest extends TestCase
 {
@@ -71,5 +78,51 @@ class OAuthClientTest extends TestCase
 
         $actualAuthorization = $client->getAuthorization($authorizationId);
         self::assertSame($expectedAuthorization, $actualAuthorization);
+    }
+
+    #[Test]
+    public function startAuthorizationAddsAuthorizationParametersToAuthorizationUri(): void
+    {
+        $client = $this->createClientForAuthorization();
+
+        $authorizationUri = $client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, 'my-client-secret', new Uri('https://www.example.com/return'), 'openid profile', ['login_hint' => 'jane@example.com', 'prompt' => 'login']);
+
+        parse_str($authorizationUri->getQuery(), $queryParameters);
+        self::assertSame('jane@example.com', $queryParameters['login_hint']);
+        self::assertSame('login', $queryParameters['prompt']);
+        self::assertSame('openid profile', $queryParameters['scope']);
+        self::assertSame(OAuthTestClient::TEST_CLIENT_ID, $queryParameters['client_id']);
+    }
+
+    public static function reservedAuthorizationParameters(): array
+    {
+        $parameterNames = ['client_id', 'client_secret', 'redirect_uri', 'response_type', 'response_mode', 'scope', 'state', 'code_challenge', 'code_challenge_method', 'request', 'request_uri'];
+        return array_combine($parameterNames, array_map(static fn (string $parameterName): array => [$parameterName], $parameterNames));
+    }
+
+    #[Test]
+    #[DataProvider('reservedAuthorizationParameters')]
+    public function startAuthorizationRejectsReservedAuthorizationParameters(string $parameterName): void
+    {
+        $client = $this->createClientForAuthorization();
+        $entityManager = $this->createMock(EntityManagerInterface::class);
+        $entityManager->expects($this->never())->method('persist');
+        $client->injectEntityManager($entityManager);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionCode(1789131855);
+        $client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, 'my-client-secret', new Uri('https://www.example.com/return'), 'openid', [$parameterName => 'value']);
+    }
+
+    private function createClientForAuthorization(): OAuthTestClient
+    {
+        $stateCache = new VariableFrontend('state', new TransientMemoryBackend());
+        $stateCache->initializeObject();
+
+        $client = new OAuthTestClient('my-service-name');
+        $client->injectEntityManager($this->createStub(EntityManagerInterface::class));
+        (new ReflectionProperty($client, 'stateCache'))->setValue($client, $stateCache);
+        (new ReflectionProperty($client, 'logger'))->setValue($client, $this->createStub(LoggerInterface::class));
+        return $client;
     }
 }

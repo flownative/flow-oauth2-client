@@ -35,4 +35,9 @@ final class OAuthTestClient extends OAuthClient
     {
         return self::TEST_CLIENT_ID;
     }
+
+    public function renderFinishAuthorizationUri(): string
+    {
+        return self::TEST_BASE_URI . 'oauth/finish';
+    }
 }
