@@ -202,7 +202,7 @@ class Authorization
     }
 
     /**
-     * @throws \SodiumException
+     * Returns null if no token is stored or if the stored token cannot be decrypted with the current key
      */
     public function getAccessToken(): ?AccessToken
     {
@@ -221,7 +221,7 @@ class Authorization
                 $deserializedAccessToken = json_decode($this->serializedAccessToken, true, 512, JSON_THROW_ON_ERROR);
                 return new AccessToken($deserializedAccessToken);
             }
-        } catch (\JsonException) {
+        } catch (\JsonException | \SodiumException) {
         }
         return null;
     }
