@@ -2,13 +2,15 @@ Flownative:
   OAuth2:
     Client:
       garbageCollection:
-        # The probability in percent of a client shutdown triggering a garbage
-        # collection which removes expired tokens.
+        # The probability in percent that a request which used an OAuth client
+        # removes expired authorizations and states when it ends. Set it to 0
+        # and run ./flow oauth:collectgarbage regularly to clean up on a fixed
+        # schedule instead.
         #
         # Examples:
-        #    1    (would be a 1% chance to clean up)
-        #   20    (would be a 20% chance to clean up)
-        #    0.42 (would be a 0.42 % chance to clean up)
+        #    1     (a 1 % chance to clean up)
+        #   20     (a 20 % chance to clean up)
+        #    0.001 (a 0.001 % chance to clean up)
         probability: 1
 
       services: []
@@ -16,7 +18,9 @@ Flownative:
 #          className: 'Flownative\Beach\BeachClient'
 
       token:
-        # default lifetime of new tokens in seconds
+        # Lifetime in seconds of tokens from the authorization code flow which
+        # do not specify an expiration time. With null, such tokens are kept
+        # until they are removed explicitly.
         defaultLifetime: 600 # 600 seconds = 10 minutes
 
       encryption:
