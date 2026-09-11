@@ -37,53 +37,53 @@ abstract class OAuthClient
     protected string $serviceName;
 
     /**
-     * @Flow\Inject
      * @var UriBuilder
      */
+    #[Flow\Inject]
     protected $uriBuilder;
 
     /**
-     * @Flow\Inject
      * @var Bootstrap
      */
+    #[Flow\Inject]
     protected $bootstrap;
 
     /**
-     * @Flow\Inject
      * @var ServerRequestFactory
      */
+    #[Flow\Inject]
     protected $serverRequestFactory;
 
     /**
-     * @Flow\InjectConfiguration(path="http.baseUri", package="Neos.Flow")
      * @var string
      */
+    #[Flow\InjectConfiguration(path: 'http.baseUri', package: 'Neos.Flow')]
     protected $flowBaseUriSetting;
 
     /**
-     * @Flow\InjectConfiguration(path="garbageCollection.probability", package="Flownative.OAuth2.Client")
      * @var float
      */
+    #[Flow\InjectConfiguration(path: 'garbageCollection.probability', package: 'Flownative.OAuth2.Client')]
     protected $garbageCollectionProbability;
 
     /**
-     * @Flow\InjectConfiguration(path="token.defaultLifetime", package="Flownative.OAuth2.Client")
      * @var int|null
      */
+    #[Flow\InjectConfiguration(path: 'token.defaultLifetime', package: 'Flownative.OAuth2.Client')]
     protected $defaultTokenLifetime;
 
     protected EntityManagerInterface $entityManager;
 
     /**
-     * @Flow\Inject
      * @var LoggerInterface
      */
+    #[Flow\Inject]
     protected $logger;
 
     /**
-     * @Flow\Inject
      * @var VariableFrontend
      */
+    #[Flow\Inject]
     protected $stateCache;
 
     public function __construct(string $serviceName)

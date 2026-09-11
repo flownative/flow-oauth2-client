@@ -13,17 +13,15 @@ namespace Flownative\OAuth2\Client;
  * source code.
  */
 
-use Exception;
 use League\OAuth2\Client\Token\AccessToken;
-use Neos\Flow\Tests\UnitTestCase;
 use Neos\Flow\Utility\Algorithms;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\TestCase;
 
-class AuthorizationTest extends UnitTestCase
+class AuthorizationTest extends TestCase
 {
-    /**
-     * @return array
-     */
-    public function correctConstructorArguments(): array
+    public static function correctConstructorArguments(): array
     {
         return [
             [
@@ -36,15 +34,8 @@ class AuthorizationTest extends UnitTestCase
         ];
     }
 
-    /**
-     * @param string $authorizationId
-     * @param string $serviceName
-     * @param string $clientId
-     * @param string $grantType
-     * @param string $scope
-     * @test
-     * @dataProvider correctConstructorArguments
-     */
+    #[Test]
+    #[DataProvider('correctConstructorArguments')]
     public function constructSetsAuthorizationParameters(string $authorizationId, string $serviceName, string $clientId, string $grantType, string $scope): void
     {
         $authorization = new Authorization($authorizationId, $serviceName, $clientId, $grantType, $scope);
@@ -55,10 +46,7 @@ class AuthorizationTest extends UnitTestCase
         self::assertSame($scope, $authorization->getScope());
     }
 
-    /**
-     * @test
-     * @throws Exception
-     */
+    #[Test]
     public function getAccessTokenReturnsClonedObject(): void
     {
         $accessToken = $this->createValidAccessToken();
@@ -71,10 +59,7 @@ class AuthorizationTest extends UnitTestCase
         $this->assertEquals($accessToken, $retrievedAccessToken);
     }
 
-    /**
-     * @test
-     * @throws Exception
-     */
+    #[Test]
     public function getSerializedAccessTokenReturnsCorrectJsonString(): void
     {
         $accessToken = $this->createValidAccessToken();
@@ -86,10 +71,7 @@ class AuthorizationTest extends UnitTestCase
         $this->assertEquals($accessToken, $secondAccessToken);
     }
 
-    /**
-     * @test
-     * @throws Exception
-     */
+    #[Test]
     public function getAccessTokenReturnsPreviouslySetSerializedToken(): void
     {
         $accessToken = $this->createValidAccessToken();
@@ -101,10 +83,7 @@ class AuthorizationTest extends UnitTestCase
         $this->assertEquals($accessToken, $secondAccessToken);
     }
 
-    /**
-     * @test
-     * @throws
-     */
+    #[Test]
     public function setAccessTokenEncryptsTokenIfEncryptionServiceIsConfigured(): void
     {
         $accessToken = $this->createValidAccessToken();
@@ -122,10 +101,7 @@ class AuthorizationTest extends UnitTestCase
         $this->assertEquals($accessToken, $secondAccessToken);
     }
 
-    /**
-     * @test
-     * @throws
-     */
+    #[Test]
     public function getAccessTokenFailsOnEncryptedTokenIfKeyWasChanged(): void
     {
         $accessToken = $this->createValidAccessToken();
@@ -146,9 +122,7 @@ class AuthorizationTest extends UnitTestCase
         $this->assertNull($secondAccessToken);
     }
 
-    /**
-     * @test
-     */
+    #[Test]
     public function generateAuthorizationIdForClientCredentialsGrantReturnsSha1(): void
     {
         $authorizationId = Authorization::generateAuthorizationIdForClientCredentialsGrant(
@@ -158,11 +132,9 @@ class AuthorizationTest extends UnitTestCase
     }
 
     /**
-     * @test
-     * @throws OAuthClientException
-     *
      * @see https://github.com/flownative/flow-oauth2-client/issues/13
      */
+    #[Test]
     public function generateAuthorizationIdForAuthorizationCodeGrantReturnsRandomIdentifiers(): void
     {
         $firstAuthorizationId = Authorization::generateAuthorizationIdForAuthorizationCodeGrant(
@@ -182,18 +154,14 @@ class AuthorizationTest extends UnitTestCase
         self::assertNotSame($firstAuthorizationId, $secondAuthorizationId);
     }
 
-    /**
-     * @test
-     */
+    #[Test]
     public function getAccessTokenReturnsNullIfNoTokenWasSet(): void
     {
         $authorization = new Authorization('3d47f0eafd6a8b49e32b55103d817b6e4ef489e7', 'service', 'clientId', Authorization::GRANT_AUTHORIZATION_CODE, '');
         self::assertNull($authorization->getAccessToken());
     }
 
-    /**
-     * @test
-     */
+    #[Test]
     public function getAccessTokenReturnsNullIfTokenCouldNotBeDeserialized(): void
     {
         $authorization = new Authorization('3d47f0eafd6a8b49e32b55103d817b6e4ef489e7', 'service', 'clientId', Authorization::GRANT_AUTHORIZATION_CODE, '');
@@ -201,9 +169,7 @@ class AuthorizationTest extends UnitTestCase
         self::assertNull($authorization->getAccessToken());
     }
 
-    /**
-     * @test
-     */
+    #[Test]
     public function getScopeReturnsScope(): void
     {
         $authorization = new Authorization('3d47f0eafd6a8b49e32b55103d817b6e4ef489e7', 'service', 'clientId', Authorization::GRANT_AUTHORIZATION_CODE, '');
@@ -211,10 +177,6 @@ class AuthorizationTest extends UnitTestCase
         self::assertSame('some-custom-scope', $authorization->getScope());
     }
 
-    /**
-     * @return AccessToken
-     * @throws Exception
-     */
     private function createValidAccessToken(): AccessToken
     {
         return new AccessToken([

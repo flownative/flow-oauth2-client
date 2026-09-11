@@ -5,14 +5,10 @@ namespace Flownative\OAuth2\Client;
 
 use Neos\Flow\Annotations as Flow;
 
-/**
- * @Flow\Scope("singleton")
- */
+#[Flow\Scope('singleton')]
 class EncryptionService {
 
-    /**
-     * @Flow\InjectConfiguration(path="encryption.base64EncodedKey")
-     */
+    #[Flow\InjectConfiguration(path: 'encryption.base64EncodedKey')]
     protected string $base64EncodedKey = '';
 
     protected string $key;
@@ -69,12 +65,17 @@ class EncryptionService {
         }
 
         $nonce = base64_decode($encodedNonce);
-        return sodium_crypto_aead_chacha20poly1305_ietf_decrypt(
+        $decryptedData = sodium_crypto_aead_chacha20poly1305_ietf_decrypt(
             base64_decode($encodedEncryptedSerializedAccessToken),
             $nonce,
             $nonce,
             $this->key
         );
+        // The native Sodium extension signals a wrong key or tampered data by returning false.
+        if ($decryptedData === false) {
+            throw new \SodiumException('Failed decrypting serialized access token: the key does not match or the data was modified');
+        }
+        return $decryptedData;
     }
 
     /**

@@ -7,7 +7,7 @@ use Flownative\OAuth2\Client\OAuthClient;
 use Flownative\OAuth2\Client\OAuthClientException;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Psr7\Uri;
-use Neos\Flow\Annotations\CompileStatic;
+use Neos\Flow\Annotations as Flow;
 use Neos\Flow\Mvc\Controller\ActionController;
 use Neos\Flow\Mvc\Exception\StopActionException;
 use Neos\Flow\Mvc\Exception\UnsupportedRequestTypeException;
@@ -86,8 +86,8 @@ final class OAuthController extends ActionController
      *
      * @param ObjectManagerInterface $objectManager
      * @return array
-     * @CompileStatic
      */
+    #[Flow\CompileStatic]
     protected static function detectServiceTypes(ObjectManagerInterface $objectManager): array
     {
         $serviceTypes = [];

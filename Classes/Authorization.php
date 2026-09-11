@@ -21,18 +21,17 @@ use Ramsey\Uuid\Uuid;
 
 /**
  * An OAuth2 Authorization
- *
- * @Flow\Entity
  */
+#[Flow\Entity]
 class Authorization
 {
     public const GRANT_AUTHORIZATION_CODE = 'authorization_code';
     public const GRANT_CLIENT_CREDENTIALS = 'client_credentials';
 
     /**
-     * @ORM\Id
      * @var string
      */
+    #[ORM\Id]
     protected $authorizationId;
 
     /**
@@ -58,32 +57,32 @@ class Authorization
 
     /**
      * @var \DateTimeImmutable
-     * @ORM\Column(nullable = true)
      */
+    #[ORM\Column(nullable: true)]
     protected $expires;
 
     /**
      * @var string
-     * @ORM\Column(nullable = true, type = "text")
      */
+    #[ORM\Column(type: 'text', nullable: true)]
     protected $serializedAccessToken;
 
     /**
      * @var string
-     * @ORM\Column(nullable = true, type = "text")
      */
+    #[ORM\Column(type: 'text', nullable: true)]
     protected $encryptedSerializedAccessToken;
 
     /**
      * @var string
-     * @ORM\Column(nullable = true, type = "text")
      */
+    #[ORM\Column(type: 'text', nullable: true)]
     protected $metadata;
 
     /**
-     * @Flow\Transient
      * @var EncryptionService
      */
+    #[Flow\Transient]
     protected $encryptionService;
 
     public function __construct(string $authorizationId, string $serviceName, string $clientId, string $grantType, string $scope)
@@ -203,7 +202,7 @@ class Authorization
     }
 
     /**
-     * @throws \SodiumException
+     * Returns null if no token is stored or if the stored token cannot be decrypted with the current key
      */
     public function getAccessToken(): ?AccessToken
     {
@@ -222,7 +221,7 @@ class Authorization
                 $deserializedAccessToken = json_decode($this->serializedAccessToken, true, 512, JSON_THROW_ON_ERROR);
                 return new AccessToken($deserializedAccessToken);
             }
-        } catch (\JsonException) {
+        } catch (\JsonException | \SodiumException) {
         }
         return null;
     }
