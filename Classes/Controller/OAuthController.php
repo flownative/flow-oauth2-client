@@ -38,7 +38,6 @@ final class OAuthController extends ActionController
      * @throws OAuthClientException
      * @throws StopActionException
      * @throws UnsupportedRequestTypeException
-     * @throws \DateMalformedStringException
      */
     public function startAuthorizationAction(string $clientId, string $clientSecret, Uri $returnToUri, string $serviceType, string $serviceName, string $scope): void
     {
