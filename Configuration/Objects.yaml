@@ -7,3 +7,15 @@ Flownative\OAuth2\Client\OAuthClient:
         arguments:
           1:
             value: Flownative_OAuth2_Client_State
+
+Flownative\OAuth2\Client\GarbageCollector:
+  arguments:
+    2:
+      object:
+        factoryObjectName: Neos\Flow\Cache\CacheManager
+        factoryMethodName: getCache
+        arguments:
+          1:
+            value: Flownative_OAuth2_Client_State
+    3:
+      setting: Flownative.OAuth2.Client.garbageCollection.probability

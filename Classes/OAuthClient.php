@@ -21,7 +21,6 @@ use Neos\Flow\Log\Utility\LogEnvironment;
 use Neos\Flow\Mvc\ActionRequest;
 use Neos\Flow\Mvc\Routing\Exception\MissingActionNameException;
 use Neos\Flow\Mvc\Routing\UriBuilder;
-use Neos\Flow\Persistence\Doctrine\Query;
 use Neos\Http\Factories\ServerRequestFactory;
 use Psr\Http\Message\UriInterface;
 use Psr\Log\LoggerInterface;
@@ -38,6 +37,8 @@ abstract class OAuthClient
 
     private const array RESERVED_AUTHORIZATION_PARAMETER_NAMES = ['client_id', 'client_secret', 'redirect_uri', 'response_type', 'response_mode', 'scope', 'state', 'code_challenge', 'code_challenge_method', 'request', 'request_uri'];
 
+    private const int STATE_LIFETIME = 3600; # seconds
+
     protected string $serviceName;
 
     protected EntityManagerInterface $entityManager;
@@ -51,6 +52,9 @@ abstract class OAuthClient
     #[Flow\Inject]
     protected ServerRequestFactory $serverRequestFactory;
 
+    #[Flow\Inject]
+    protected GarbageCollector $garbageCollector;
+
     /**
      * Not typed, because the OAuth client of flownative/openidconnect-client redeclares this property without a type
      *
@@ -58,9 +62,6 @@ abstract class OAuthClient
      */
     #[Flow\InjectConfiguration(path: 'http.baseUri', package: 'Neos.Flow')]
     protected $flowBaseUriSetting;
-
-    #[Flow\InjectConfiguration(path: 'garbageCollection.probability', package: 'Flownative.OAuth2.Client')]
-    protected float|int $garbageCollectionProbability = 1; # percent
 
     #[Flow\InjectConfiguration(path: 'token.defaultLifetime', package: 'Flownative.OAuth2.Client')]
     protected ?int $defaultTokenLifetime = null; # seconds; null if new tokens don't expire
@@ -251,9 +252,7 @@ abstract class OAuthClient
         }
 
         $authorization = new Authorization($authorizationId, static::getServiceType(), $clientId, Authorization::GRANT_AUTHORIZATION_CODE, $scope);
-        if ($this->defaultTokenLifetime !== null) {
-            $authorization->setExpires(new \DateTimeImmutable('+ ' . $this->defaultTokenLifetime . ' seconds'));
-        }
+        $authorization->setExpires(new \DateTimeImmutable('@' . (time() + self::STATE_LIFETIME)));
 
         $this->logger?->info(sprintf('OAuth (%s): Starting authorization %s using client id "%s", a %s bytes long secret and scope "%s".', static::getServiceType(), $authorization->getAuthorizationId(), $clientId, strlen($clientSecret), $scope));
 
@@ -283,7 +282,9 @@ abstract class OAuthClient
                     'clientId' => $clientId,
                     'clientSecret' => $clientSecret,
                     'returnToUri' => (string)$returnToUri
-                ]
+                ],
+                [],
+                self::STATE_LIFETIME
             );
         } catch (Exception $exception) {
             throw new OAuthClientException(sprintf('OAuth (%s): Failed setting cache entry for authorization: %s', static::getServiceType(), $exception->getMessage()), 1560178858);
@@ -327,6 +328,9 @@ abstract class OAuthClient
             $this->logger?->info(sprintf('OAuth (%s): Persisting OAuth token for authorization "%s" with expiry time %s.', static::getServiceType(), $authorizationId, $accessToken->getExpires()));
 
             $authorization->setAccessToken($accessToken);
+            if ($accessToken->getExpires() === null) {
+                $authorization->setExpires($this->defaultTokenLifetime !== null ? new \DateTimeImmutable('@' . (time() + $this->defaultTokenLifetime)) : null);
+            }
 
             $accessTokenValues = $accessToken->getValues();
             $scope = $accessTokenValues['scope'] ?? $scope;
@@ -434,18 +438,6 @@ abstract class OAuthClient
         return new HttpClient();
     }
 
-    protected function removeExpiredAuthorizations(): void
-    {
-        $query = new Query(Authorization::class);
-        $authorizations = $query->matching($query->lessThan('expires', new \DateTimeImmutable()))->execute();
-        foreach ($authorizations as $authorization) {
-            assert($authorization instanceof Authorization);
-            $this->entityManager->remove($authorization);
-        }
-
-        $this->entityManager->flush();
-    }
-
     /**
      * Shuts down this client
      *
@@ -454,15 +446,6 @@ abstract class OAuthClient
      */
     public function shutdownObject(): void
     {
-        $garbageCollectionProbability = (string)$this->garbageCollectionProbability;
-        $decimals = strlen(strrchr($garbageCollectionProbability, '.') ?: '') - 1;
-        $factor = ($decimals > -1) ? $decimals * 10 : 1;
-        try {
-            if (random_int(1, 100 * $factor) <= ($this->garbageCollectionProbability * $factor)) {
-                $this->removeExpiredAuthorizations();
-                $this->stateCache->collectGarbage();
-            }
-        } catch (\Exception) {
-        }
+        $this->garbageCollector->collectWithProbability();
     }
 }

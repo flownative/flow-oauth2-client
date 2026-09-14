@@ -228,12 +228,16 @@ class Authorization
 
     public function getExpires(): ?\DateTimeImmutable
     {
-        return $this->expires;
+        // Doctrine loads the stored UTC time with PHP's default time zone.
+        return $this->expires !== null ? new \DateTimeImmutable($this->expires->format('Y-m-d H:i:s'), new \DateTimeZone('UTC')) : null;
     }
 
-    public function setExpires(\DateTimeImmutable $expires): void
+    /**
+     * The expiration time is stored in UTC, so that garbage collection does not depend on PHP's default time zone
+     */
+    public function setExpires(?\DateTimeImmutable $expires): void
     {
-        $this->expires = $expires;
+        $this->expires = $expires?->setTimezone(new \DateTimeZone('UTC'));
     }
 
     public function getMetadata(): ?string

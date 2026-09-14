@@ -27,34 +27,47 @@ respective service.
 
 ### Token lifetime
 
-New Authorization tokens are created with a lifetime of 600 seconds
-(10 minutes) by default.
-The expiration date is updated during authentication if a different
-`expires` parameter is specified in the OAuth2 access token.
+An authorization expires together with its token. Expired
+authorizations are removed by the garbage collection.
 
-The default token lifetime and frequency of expired tokens to be removed
-automatically can be configured:
+Tokens from the authorization code flow which don't specify an
+expiration time get a default lifetime of 600 seconds (10 minutes). An
+authorization code flow which has not finished expires after one hour.
+Tokens from the client credentials flow without an expiration time
+don't expire. They are replaced when a new token is requested.
+
+The default token lifetime and the frequency of the garbage collection
+can be configured:
 
 ```yaml
 Flownative:
   OAuth2:
     Client:
       garbageCollection:
-        # The probability in percent of a client shutdown triggering a garbage
-        # collection which removes expired tokens.
+        # The probability in percent that a request which used an OAuth client
+        # removes expired authorizations and states when it ends.
         #
         # Examples:
-        #    1    (would be a 1% chance to clean up)
-        #   20    (would be a 20% chance to clean up)
-        #    0.42 (would be a 0.42 % chance to clean up)
+        #    1     (a 1 % chance to clean up)
+        #   20     (a 20 % chance to clean up)
+        #    0.001 (a 0.001 % chance to clean up)
         probability: 1
       token:
-        # default lifetime of new tokens in seconds
+        # Lifetime in seconds of tokens from the authorization code flow which
+        # do not specify an expiration time
         defaultLifetime: 600
 ```
 
-Note: By setting the `defaultLifetime` to `null`, new tokens won't expire
-by default.
+Note: By setting the `defaultLifetime` to `null`, tokens without an
+expiration time won't expire.
+
+Instead of relying on chance, you can remove expired authorizations on
+a fixed schedule, for example with a cron job. Set the `probability` to
+`0` and run the following command regularly:
+
+```bash
+$ ./flow oauth:collectgarbage
+```
 
 ### Authorization metadata
 

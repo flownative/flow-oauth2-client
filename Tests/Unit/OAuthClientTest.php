@@ -211,6 +211,54 @@ class OAuthClientTest extends TestCase
     }
 
     #[Test]
+    public function startAuthorizationStoresAuthorizationWhichExpiresTogetherWithTheState(): void
+    {
+        $client = $this->createClientForAuthorization();
+
+        $client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid');
+
+        self::assertEqualsWithDelta(time() + 3600, reset($this->storedAuthorizations)->getExpires()->getTimestamp(), 5);
+    }
+
+    #[Test]
+    public function finishAuthorizationTakesExpirationTimeOfToken(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid'));
+        $this->oAuthServer->append(new Response(200, ['Content-Type' => 'application/json'], json_encode(['access_token' => 'the-access-token', 'token_type' => 'Bearer', 'expires_in' => 86400])));
+
+        $client->finishAuthorization($state, 'the-code', '');
+
+        self::assertEqualsWithDelta(time() + 86400, reset($this->storedAuthorizations)->getExpires()->getTimestamp(), 5);
+    }
+
+    #[Test]
+    public function finishAuthorizationAppliesDefaultLifetimeToTokenWithoutExpirationTime(): void
+    {
+        $client = $this->createClientForAuthorization();
+        (new ReflectionProperty($client, 'defaultTokenLifetime'))->setValue($client, 600);
+        $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid'));
+        $this->oAuthServer->append(new Response(200, ['Content-Type' => 'application/json'], json_encode(['access_token' => 'the-access-token', 'token_type' => 'Bearer'])));
+
+        $client->finishAuthorization($state, 'the-code', '');
+
+        self::assertEqualsWithDelta(time() + 600, reset($this->storedAuthorizations)->getExpires()->getTimestamp(), 5);
+    }
+
+    #[Test]
+    public function finishAuthorizationKeepsTokenWithoutExpirationTimeIfDefaultLifetimeIsNull(): void
+    {
+        $client = $this->createClientForAuthorization();
+        (new ReflectionProperty($client, 'defaultTokenLifetime'))->setValue($client, null);
+        $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid'));
+        $this->oAuthServer->append(new Response(200, ['Content-Type' => 'application/json'], json_encode(['access_token' => 'the-access-token', 'token_type' => 'Bearer'])));
+
+        $client->finishAuthorization($state, 'the-code', '');
+
+        self::assertNull(reset($this->storedAuthorizations)->getExpires());
+    }
+
+    #[Test]
     public function requestAccessTokenStoresTokenOfClientCredentialsGrant(): void
     {
         $client = $this->createClientForAuthorization();

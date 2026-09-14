@@ -6,12 +6,17 @@ namespace Flownative\OAuth2\Client\Command;
 use Doctrine\ORM\EntityManagerInterface as DoctrineEntityManagerInterface;
 use Flownative\OAuth2\Client\Authorization;
 use Flownative\OAuth2\Client\EncryptionService;
+use Flownative\OAuth2\Client\GarbageCollector;
+use Neos\Flow\Annotations as Flow;
 use Neos\Flow\Cli\CommandController;
 use Neos\Flow\Persistence\Doctrine\Query;
 
 final class OAuthCommandController extends CommandController
 {
     protected DoctrineEntityManagerInterface $entityManager;
+
+    #[Flow\Inject]
+    protected GarbageCollector $garbageCollector;
 
     /**
      * @param DoctrineEntityManagerInterface $entityManager
@@ -98,6 +103,21 @@ final class OAuthCommandController extends CommandController
             exit(1);
         }
         $this->outputLine('<success>Done</success>');
+    }
+
+    /**
+     * Remove expired authorizations
+     *
+     * This command removes all expired authorizations and the expired entries of the
+     * state cache. Run it regularly, for example as a cron job, if you set the
+     * setting "garbageCollection.probability" to 0.
+     *
+     * @return void
+     */
+    public function collectGarbageCommand(): void
+    {
+        $removedAuthorizationsCount = $this->garbageCollector->collect();
+        $this->outputLine('Removed %d expired authorizations.', [$removedAuthorizationsCount]);
     }
 
     /**

@@ -13,14 +13,29 @@ namespace Flownative\OAuth2\Client;
  * source code.
  */
 
+use DateTimeImmutable;
+use DateTimeZone;
 use League\OAuth2\Client\Token\AccessToken;
 use Neos\Flow\Utility\Algorithms;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use ReflectionProperty;
 
 class AuthorizationTest extends TestCase
 {
+    private string $defaultTimeZone;
+
+    protected function setUp(): void
+    {
+        $this->defaultTimeZone = date_default_timezone_get();
+    }
+
+    protected function tearDown(): void
+    {
+        date_default_timezone_set($this->defaultTimeZone);
+    }
+
     public static function correctConstructorArguments(): array
     {
         return [
@@ -186,6 +201,42 @@ class AuthorizationTest extends TestCase
         $authorization->setAccessToken($accessToken);
 
         self::assertSame($accessToken->getExpires(), $authorization->getExpires()->getTimestamp());
+    }
+
+    #[Test]
+    public function setExpiresStoresExpirationTimeInUtc(): void
+    {
+        date_default_timezone_set('Europe/Berlin');
+        $expires = new DateTimeImmutable('2026-07-01 12:00:00', new DateTimeZone('Europe/Berlin'));
+        $authorization = new Authorization('3d47f0eafd6a8b49e32b55103d817b6e4ef489e7', 'service', 'clientId', Authorization::GRANT_AUTHORIZATION_CODE, '');
+
+        $authorization->setExpires($expires);
+
+        self::assertSame('2026-07-01 10:00:00', (new ReflectionProperty($authorization, 'expires'))->getValue($authorization)->format('Y-m-d H:i:s'));
+        self::assertSame($expires->getTimestamp(), $authorization->getExpires()->getTimestamp());
+    }
+
+    #[Test]
+    public function getExpiresInterpretsStoredExpirationTimeAsUtc(): void
+    {
+        date_default_timezone_set('Europe/Berlin');
+        $authorization = new Authorization('3d47f0eafd6a8b49e32b55103d817b6e4ef489e7', 'service', 'clientId', Authorization::GRANT_AUTHORIZATION_CODE, '');
+
+        // Doctrine hydrates the column value with PHP's default time zone
+        (new ReflectionProperty($authorization, 'expires'))->setValue($authorization, new DateTimeImmutable('2026-07-01 10:00:00'));
+
+        self::assertSame('2026-07-01T10:00:00+00:00', $authorization->getExpires()->format(DATE_ATOM));
+    }
+
+    #[Test]
+    public function setExpiresAcceptsNullForAuthorizationsWhichDoNotExpire(): void
+    {
+        $authorization = new Authorization('3d47f0eafd6a8b49e32b55103d817b6e4ef489e7', 'service', 'clientId', Authorization::GRANT_AUTHORIZATION_CODE, '');
+        $authorization->setExpires(new DateTimeImmutable());
+
+        $authorization->setExpires(null);
+
+        self::assertNull($authorization->getExpires());
     }
 
     #[Test]
