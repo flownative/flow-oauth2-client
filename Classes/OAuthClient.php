@@ -35,7 +35,17 @@ abstract class OAuthClient
      */
     public const string AUTHORIZATION_ID_QUERY_PARAMETER_NAME_PREFIX = 'flownative_oauth2_authorization_id';
 
+    /**
+     * Name of the HTTP query parameter which passes the error code of a refused authorization to the application
+     */
+    public const string AUTHORIZATION_ERROR_QUERY_PARAMETER_NAME_PREFIX = 'flownative_oauth2_error';
+
     private const array RESERVED_AUTHORIZATION_PARAMETER_NAMES = ['client_id', 'client_secret', 'redirect_uri', 'response_type', 'response_mode', 'scope', 'state', 'code_challenge', 'code_challenge_method', 'request', 'request_uri'];
+
+    /**
+     * Error codes of RFC 6749, section 4.1.2.1, and OpenID Connect Core, section 3.1.2.6
+     */
+    private const array DEFINED_AUTHORIZATION_ERRORS = ['invalid_request', 'unauthorized_client', 'access_denied', 'unsupported_response_type', 'invalid_scope', 'server_error', 'temporarily_unavailable', 'interaction_required', 'login_required', 'account_selection_required', 'consent_required', 'invalid_request_uri', 'invalid_request_object', 'request_not_supported', 'request_uri_not_supported', 'registration_not_supported'];
 
     private const int STATE_LIFETIME = 3600; # seconds
 
@@ -163,6 +173,15 @@ abstract class OAuthClient
     }
 
     /**
+     * Generates the URL query parameter name which passes the error code of a refused authorization to Flow
+     * (via the "Return URL").
+     */
+    public static function generateAuthorizationErrorQueryParameterName(string $serviceType): string
+    {
+        return self::AUTHORIZATION_ERROR_QUERY_PARAMETER_NAME_PREFIX . '_' . $serviceType;
+    }
+
+    /**
      * Requests an access token.
      *
      * This method is used using the OAuth Client Credentials Flow for machine-to-machine applications.
@@ -267,7 +286,9 @@ abstract class OAuthClient
             throw new OAuthClientException(sprintf('OAuth (%s): Failed storing authorization in database: %s', static::getServiceType(), $exception->getMessage()), 1568727133);
         }
 
-        $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
+        // The token request must repeat the redirect URI exactly (RFC 6749, section 4.1.3), even if the browser returns through another host name
+        $redirectUri = $this->renderFinishAuthorizationUri();
+        $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret, $redirectUri);
         $authorizationUri = new Uri($oAuthProvider->getAuthorizationUrl(array_merge($authorizationParameters, ['scope' => $scope])));
 
         if ($clientId === $clientSecret) {
@@ -281,7 +302,8 @@ abstract class OAuthClient
                     'authorizationId' => $authorization->getAuthorizationId(),
                     'clientId' => $clientId,
                     'clientSecret' => $clientSecret,
-                    'returnToUri' => (string)$returnToUri
+                    'returnToUri' => (string)$returnToUri,
+                    'redirectUri' => $redirectUri,
                 ],
                 [],
                 self::STATE_LIFETIME
@@ -296,21 +318,20 @@ abstract class OAuthClient
     /**
      * Finish an OAuth authorization with the Authorization Code flow
      *
+     * Returns the return URI of the authorization, with the authorization id as an additional query parameter.
+     *
+     * @throws UnknownStateException
      * @throws OAuthClientException
-     * @throws GuzzleException
      */
-    public function finishAuthorization(string $stateIdentifier, string $code, string $scope): UriInterface
+    public function finishAuthorization(string $stateIdentifier, string $code): UriInterface
     {
-        $stateFromCache = $this->stateCache->get($stateIdentifier);
-        if (empty($stateFromCache)) {
-            throw new OAuthClientException(sprintf('OAuth: Finishing authorization failed because oAuth state %s could not be retrieved from the state cache.', $stateIdentifier), 1558956494);
-        }
-        $this->stateCache->remove($stateIdentifier);
+        $stateFromCache = $this->takeState($stateIdentifier);
 
         $authorizationId = $stateFromCache['authorizationId'];
         $clientId = $stateFromCache['clientId'];
         $clientSecret = $stateFromCache['clientSecret'];
-        $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret);
+        // TODO: Remove the fallback in 6.0, it only serves states which were stored by 4.x
+        $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret, $stateFromCache['redirectUri'] ?? $this->renderFinishAuthorizationUri());
 
         $this->logger?->info(sprintf('OAuth (%s): Finishing authorization for client "%s", authorization id "%s", using state %s.', static::getServiceType(), $clientId, $authorizationId, $stateIdentifier));
         try {
@@ -323,8 +344,12 @@ abstract class OAuthClient
                 throw new OAuthClientException(sprintf('OAuth2 (%s): Finishing authorization failed because authorization %s does not have the authorization code flow type!', static::getServiceType(), $authorizationId), 1597312780);
             }
 
-            $this->logger?->debug(sprintf('OAuth (%s): Retrieving an OAuth access token for authorization "%s" in exchange for the code %s', static::getServiceType(), $authorizationId, str_repeat('*', strlen($code) - 3) . substr($code, -3, 3)));
-            $accessToken = $oAuthProvider->getAccessToken(Authorization::GRANT_AUTHORIZATION_CODE, ['code' => $code]);
+            $this->logger?->debug(sprintf('OAuth (%s): Retrieving an OAuth access token for authorization "%s" in exchange for the code', static::getServiceType(), $authorizationId));
+            try {
+                $accessToken = $oAuthProvider->getAccessToken(Authorization::GRANT_AUTHORIZATION_CODE, ['code' => $code]);
+            } catch (GuzzleException|\UnexpectedValueException|\InvalidArgumentException $exception) {
+                throw new OAuthClientException(sprintf('OAuth (%s): The token request for authorization "%s" failed: %s', static::getServiceType(), $authorizationId, $exception->getMessage()), 1789386786, $exception);
+            }
             $this->logger?->info(sprintf('OAuth (%s): Persisting OAuth token for authorization "%s" with expiry time %s.', static::getServiceType(), $authorizationId, $accessToken->getExpires()));
 
             $authorization->setAccessToken($accessToken);
@@ -332,9 +357,11 @@ abstract class OAuthClient
                 $authorization->setExpires($this->defaultTokenLifetime !== null ? new \DateTimeImmutable('@' . (time() + $this->defaultTokenLifetime)) : null);
             }
 
-            $accessTokenValues = $accessToken->getValues();
-            $scope = $accessTokenValues['scope'] ?? $scope;
-            $authorization->setScope($scope);
+            // The token response only contains the scope if the server granted a different one (RFC 6749, section 5.1)
+            $grantedScope = $accessToken->getValues()['scope'] ?? null;
+            if (is_string($grantedScope)) {
+                $authorization->setScope($grantedScope);
+            }
 
             $this->entityManager->persist($authorization);
             $this->entityManager->flush();
@@ -348,6 +375,24 @@ abstract class OAuthClient
 
         $this->logger?->debug(sprintf('OAuth (%s): Finished authorization "%s", $returnToUri is %s.', static::getServiceType(), $authorizationId, $returnToUri));
         return $returnToUri;
+    }
+
+    /**
+     * Ends an authorization which the OAuth server refused, for example because the user denied access
+     *
+     * Returns the return URI of the authorization, with the error code as an additional query parameter. Applications
+     * may display the error code, so codes which RFC 6749 and OpenID Connect don't define are replaced by "server_error".
+     *
+     * @throws UnknownStateException
+     */
+    public function finishAuthorizationWithError(string $stateIdentifier, string $error): UriInterface
+    {
+        $stateFromCache = $this->takeState($stateIdentifier);
+        $definedError = in_array($error, self::DEFINED_AUTHORIZATION_ERRORS, true) ? $error : 'server_error';
+        $this->logger?->notice(sprintf('OAuth (%s): The OAuth server refused the authorization with the error "%s".', static::getServiceType(), $definedError), LogEnvironment::fromMethodName(__METHOD__));
+
+        $returnToUri = new Uri($stateFromCache['returnToUri']);
+        return $returnToUri->withQuery(trim($returnToUri->getQuery() . '&' . self::generateAuthorizationErrorQueryParameterName(static::getServiceType()) . '=' . $definedError, '&'));
     }
 
     /**
@@ -372,14 +417,20 @@ abstract class OAuthClient
         }
     }
 
+    /**
+     * Returns the URI to which the OAuth server redirects the browser when the authorization is finished
+     *
+     * @throws OAuthClientException
+     */
     public function renderFinishAuthorizationUri(): string
     {
         $currentRequestHandler = $this->bootstrap->getActiveRequestHandler();
         if ($currentRequestHandler instanceof HttpRequestHandlerInterface) {
             $httpRequest = $currentRequestHandler->getHttpRequest();
-        } else {
-            putenv('FLOW_REWRITEURLS=1');
+        } elseif (is_string($this->flowBaseUriSetting) && $this->flowBaseUriSetting !== '') {
             $httpRequest = $this->serverRequestFactory->createServerRequest('GET', new Uri($this->flowBaseUriSetting));
+        } else {
+            throw new OAuthClientException(sprintf('OAuth (%s): Outside of a web request, for example in a command or a job, the redirect URI can only be rendered if the setting "Neos.Flow.http.baseUri" is configured.', static::getServiceType()), 1789386788);
         }
         $actionRequest = ActionRequest::fromHttpRequest($httpRequest);
 
@@ -413,12 +464,15 @@ abstract class OAuthClient
         $this->entityManager->flush();
     }
 
-    protected function createOAuthProvider(string $clientId, string $clientSecret): GenericProvider
+    /**
+     * @param string|null $redirectUri null for grants without a redirect, like client credentials
+     */
+    protected function createOAuthProvider(string $clientId, string $clientSecret, ?string $redirectUri = null): GenericProvider
     {
         return new GenericProvider([
             'clientId' => $clientId,
             'clientSecret' => $clientSecret,
-            'redirectUri' => $this->renderFinishAuthorizationUri(),
+            'redirectUri' => $redirectUri,
             'urlAuthorize' => $this->getAuthorizeTokenUri(),
             'urlAccessToken' => $this->getAccessTokenUri(),
             'urlResourceOwnerDetails' => $this->getResourceOwnerUri(),
@@ -447,5 +501,24 @@ abstract class OAuthClient
     public function shutdownObject(): void
     {
         $this->garbageCollector->collectWithProbability();
+    }
+
+    /**
+     * Returns the data which was stored for the given state and removes it, so that each state is accepted only once
+     *
+     * @throws UnknownStateException
+     */
+    private function takeState(string $stateIdentifier): array
+    {
+        // The cache rejects other identifiers with an exception
+        if (preg_match('/^[a-zA-Z0-9_-]{1,250}$/', $stateIdentifier) !== 1) {
+            throw new UnknownStateException(sprintf('OAuth (%s): The state of the returning authorization is malformed.', static::getServiceType()), 1789386787);
+        }
+        $stateFromCache = $this->stateCache->get($stateIdentifier);
+        if (!is_array($stateFromCache)) {
+            throw new UnknownStateException(sprintf('OAuth (%s): The state of the returning authorization is unknown, expired or was already used.', static::getServiceType()), 1558956494);
+        }
+        $this->stateCache->remove($stateIdentifier);
+        return $stateFromCache;
     }
 }

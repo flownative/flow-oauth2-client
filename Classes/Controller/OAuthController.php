@@ -5,7 +5,7 @@ namespace Flownative\OAuth2\Client\Controller;
 
 use Flownative\OAuth2\Client\OAuthClient;
 use Flownative\OAuth2\Client\OAuthClientException;
-use GuzzleHttp\Exception\GuzzleException;
+use Flownative\OAuth2\Client\UnknownStateException;
 use GuzzleHttp\Psr7\Uri;
 use Neos\Flow\Annotations as Flow;
 use Neos\Flow\Mvc\Controller\ActionController;
@@ -55,30 +55,38 @@ final class OAuthController extends ActionController
     /**
      * Finish OAuth2 authorization
      *
-     * This action passes the given state and code to the OAuth client in order to finish an authorization in progress.
-     * If the authorization could be finished successfully, the action will redirect to the return URI which was specified
-     * while starting the authorization.
+     * The OAuth server redirects the browser to this action, either with a code or with an error. In both cases, the
+     * action redirects to the return URI which was specified while starting the authorization. A malformed, unknown
+     * or already used state results in status 400, because it usually comes from a reloaded or bookmarked page.
      *
      * @param string $serviceType The OAuth service type, ie. the type identifying the package / class implementing OAuth
      * @param string $serviceName The OAuth service name, ie. the identifier of the concrete configuration of the given OAuth service implementation
      * @param string $state The state by which the OAuth client can find the authorization in progress
-     * @param string $code The code issued by the OAuth server
-     * @param string $scope The scope issued by the OAuth server
+     * @param string $code The code issued by the OAuth server if the authorization succeeded
+     * @param string $error The error code sent by the OAuth server if the authorization was refused
      * @throws OAuthClientException
      * @throws StopActionException
      * @throws UnsupportedRequestTypeException
-     * @throws GuzzleException
      */
-    public function finishAuthorizationAction(string $serviceType, string $serviceName, string $state, string $code, string $scope = ''): void
+    public function finishAuthorizationAction(string $serviceType, string $serviceName, string $state = '', string $code = '', string $error = ''): void
     {
         if (!isset($this->serviceTypes[$serviceType])) {
-            throw new OAuthClientException(sprintf('OAuth: Failed finishing OAuth2 authorization because the given service type "%s" is unknown.', $serviceName), 1511193117184);
+            throw new OAuthClientException(sprintf('OAuth: Failed finishing OAuth2 authorization because the given service type "%s" is unknown.', $serviceType), 1511193117184);
         }
         $client = new $this->serviceTypes[$serviceType]($serviceName);
         if (!$client instanceof OAuthClient) {
             throw new OAuthClientException(sprintf('OAuth: Failed finishing authorization because of unexpected class type: "%s" must implement %s.', get_class($client), OAuthClient::class), 1568735389);
         }
-        $this->redirectToUri($client->finishAuthorization($state, $code, $scope));
+        if ($code === '' && $error === '') {
+            $this->throwStatus(400, null, 'The OAuth server sent neither a code nor an error.');
+        }
+
+        try {
+            $returnToUri = $error !== '' ? $client->finishAuthorizationWithError($state, $error) : $client->finishAuthorization($state, $code);
+        } catch (UnknownStateException) {
+            $this->throwStatus(400, null, 'The authorization is unknown or has expired. Please start again.');
+        }
+        $this->redirectToUri($returnToUri);
     }
 
     /**

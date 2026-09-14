@@ -17,14 +17,18 @@ use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\Persistence\ObjectRepository;
 use Flownative\OAuth2\Client\Tests\Unit\Fixtures\OAuthTestClient;
 use GuzzleHttp\Client as HttpClient;
+use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
+use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Psr7\Uri;
 use InvalidArgumentException;
 use Neos\Cache\Backend\TransientMemoryBackend;
 use Neos\Cache\Frontend\VariableFrontend;
+use Neos\Flow\Core\Bootstrap;
+use Neos\Flow\Core\RequestHandlerInterface;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -157,7 +161,7 @@ class OAuthClientTest extends TestCase
         $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid profile'));
         $this->oAuthServer->append(self::createTokenResponse('the-access-token'));
 
-        $returnUri = $client->finishAuthorization($state, 'the-code', '');
+        $returnUri = $client->finishAuthorization($state, 'the-code');
 
         $authorizationId = array_key_first($this->storedAuthorizations);
         parse_str($returnUri->getQuery(), $returnUriParameters);
@@ -181,11 +185,11 @@ class OAuthClientTest extends TestCase
         $client = $this->createClientForAuthorization();
         $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid'));
         $this->oAuthServer->append(self::createTokenResponse('the-access-token'), self::createTokenResponse('another-access-token'));
-        $client->finishAuthorization($state, 'the-code', '');
+        $client->finishAuthorization($state, 'the-code');
 
         $this->expectException(OAuthClientException::class);
         $this->expectExceptionCode(1558956494);
-        $client->finishAuthorization($state, 'the-code', '');
+        $client->finishAuthorization($state, 'the-code');
     }
 
     #[Test]
@@ -195,7 +199,7 @@ class OAuthClientTest extends TestCase
 
         $this->expectException(OAuthClientException::class);
         $this->expectExceptionCode(1558956494);
-        $client->finishAuthorization('unknown-state', 'the-code', '');
+        $client->finishAuthorization('unknown-state', 'the-code');
     }
 
     #[Test]
@@ -207,7 +211,7 @@ class OAuthClientTest extends TestCase
 
         $this->expectException(OAuthClientException::class);
         $this->expectExceptionCode(1511187001671);
-        $client->finishAuthorization($state, 'the-code', '');
+        $client->finishAuthorization($state, 'the-code');
     }
 
     #[Test]
@@ -227,7 +231,7 @@ class OAuthClientTest extends TestCase
         $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid'));
         $this->oAuthServer->append(new Response(200, ['Content-Type' => 'application/json'], json_encode(['access_token' => 'the-access-token', 'token_type' => 'Bearer', 'expires_in' => 86400])));
 
-        $client->finishAuthorization($state, 'the-code', '');
+        $client->finishAuthorization($state, 'the-code');
 
         self::assertEqualsWithDelta(time() + 86400, reset($this->storedAuthorizations)->getExpires()->getTimestamp(), 5);
     }
@@ -240,7 +244,7 @@ class OAuthClientTest extends TestCase
         $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid'));
         $this->oAuthServer->append(new Response(200, ['Content-Type' => 'application/json'], json_encode(['access_token' => 'the-access-token', 'token_type' => 'Bearer'])));
 
-        $client->finishAuthorization($state, 'the-code', '');
+        $client->finishAuthorization($state, 'the-code');
 
         self::assertEqualsWithDelta(time() + 600, reset($this->storedAuthorizations)->getExpires()->getTimestamp(), 5);
     }
@@ -253,9 +257,173 @@ class OAuthClientTest extends TestCase
         $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid'));
         $this->oAuthServer->append(new Response(200, ['Content-Type' => 'application/json'], json_encode(['access_token' => 'the-access-token', 'token_type' => 'Bearer'])));
 
-        $client->finishAuthorization($state, 'the-code', '');
+        $client->finishAuthorization($state, 'the-code');
 
         self::assertNull(reset($this->storedAuthorizations)->getExpires());
+    }
+
+    #[Test]
+    public function finishAuthorizationSendsRedirectUriOfAuthorizationRequest(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid'));
+        $client->setFinishAuthorizationUri('https://other-host.example.com/oauth/finish');
+        $this->oAuthServer->append(self::createTokenResponse('the-access-token'));
+
+        $client->finishAuthorization($state, 'the-code');
+
+        parse_str((string)$this->transactions[0]['request']->getBody(), $tokenRequestParameters);
+        self::assertSame(OAuthTestClient::TEST_BASE_URI . 'oauth/finish', $tokenRequestParameters['redirect_uri']);
+    }
+
+    #[Test]
+    public function finishAuthorizationRejectsMalformedStateWithoutAskingTheCache(): void
+    {
+        $client = $this->createClientForAuthorization();
+
+        $this->expectException(UnknownStateException::class);
+        $this->expectExceptionCode(1789386787);
+        $client->finishAuthorization('<script>', 'the-code');
+    }
+
+    #[Test]
+    public function finishAuthorizationTakesScopeOfTokenResponse(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid profile'));
+        $this->oAuthServer->append(new Response(200, ['Content-Type' => 'application/json'], json_encode(['access_token' => 'the-access-token', 'token_type' => 'Bearer', 'scope' => 'openid'])));
+
+        $client->finishAuthorization($state, 'the-code');
+
+        self::assertSame('openid', reset($this->storedAuthorizations)->getScope());
+    }
+
+    #[Test]
+    public function finishAuthorizationKeepsRequestedScopeIfTokenResponseContainsNone(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid profile'));
+        $this->oAuthServer->append(self::createTokenResponse('the-access-token'));
+
+        $client->finishAuthorization($state, 'the-code');
+
+        self::assertSame('openid profile', reset($this->storedAuthorizations)->getScope());
+    }
+
+    #[Test]
+    public function finishAuthorizationTurnsTransportErrorIntoOAuthClientException(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid'));
+        $this->oAuthServer->append(new ConnectException('Connection refused', new Request('POST', OAuthTestClient::TEST_BASE_URI . 'oauth/token')));
+
+        $this->expectException(OAuthClientException::class);
+        $this->expectExceptionCode(1789386786);
+        $client->finishAuthorization($state, 'the-code');
+    }
+
+    #[Test]
+    public function finishAuthorizationTurnsTokenResponseWithoutJsonIntoOAuthClientException(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid'));
+        $this->oAuthServer->append(new Response(200, ['Content-Type' => 'text/html'], '<html lang="en"></html>'));
+
+        $this->expectException(OAuthClientException::class);
+        $this->expectExceptionCode(1789386786);
+        $client->finishAuthorization($state, 'the-code');
+    }
+
+    #[Test]
+    public function finishAuthorizationAcceptsCodeWithFewerThanThreeCharacters(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid'));
+        $this->oAuthServer->append(self::createTokenResponse('the-access-token'));
+
+        $client->finishAuthorization($state, 'x');
+
+        self::assertSame('the-access-token', reset($this->storedAuthorizations)->getAccessToken()->getToken());
+    }
+
+    #[Test]
+    public function finishAuthorizationWithErrorReturnsReturnUriWithErrorCode(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid'));
+
+        $returnUri = $client->finishAuthorizationWithError($state, 'access_denied');
+
+        parse_str($returnUri->getQuery(), $returnUriParameters);
+        self::assertSame('https://www.example.com/return', (string)$returnUri->withQuery(''));
+        self::assertSame('2', $returnUriParameters['page']);
+        self::assertSame('access_denied', $returnUriParameters[OAuthClient::generateAuthorizationErrorQueryParameterName(OAuthTestClient::TEST_SERVICE_TYPE)]);
+        self::assertArrayNotHasKey(OAuthClient::generateAuthorizationIdQueryParameterName(OAuthTestClient::TEST_SERVICE_TYPE), $returnUriParameters);
+        self::assertSame([], $this->transactions);
+    }
+
+    #[Test]
+    public function finishAuthorizationWithErrorReplacesUndefinedErrorCodes(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid'));
+
+        $returnUri = $client->finishAuthorizationWithError($state, '<script>alert(1)</script>');
+
+        parse_str($returnUri->getQuery(), $returnUriParameters);
+        self::assertSame('server_error', $returnUriParameters[OAuthClient::generateAuthorizationErrorQueryParameterName(OAuthTestClient::TEST_SERVICE_TYPE)]);
+    }
+
+    #[Test]
+    public function finishAuthorizationWithErrorUsesUpTheState(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid'));
+        $client->finishAuthorizationWithError($state, 'access_denied');
+
+        $this->expectException(UnknownStateException::class);
+        $this->expectExceptionCode(1558956494);
+        $client->finishAuthorization($state, 'the-code');
+    }
+
+    #[Test]
+    public function renderFinishAuthorizationUriRequiresBaseUriOutsideOfWebRequests(): void
+    {
+        $client = new class('my-service-name') extends OAuthClient {
+            public static function getServiceType(): string
+            {
+                return 'test';
+            }
+
+            public function getBaseUri(): string
+            {
+                return OAuthTestClient::TEST_BASE_URI;
+            }
+
+            public function getClientId(): string
+            {
+                return OAuthTestClient::TEST_CLIENT_ID;
+            }
+        };
+        $bootstrap = $this->createStub(Bootstrap::class);
+        $bootstrap->method('getActiveRequestHandler')->willReturn($this->createStub(RequestHandlerInterface::class));
+        (new ReflectionProperty($client, 'bootstrap'))->setValue($client, $bootstrap);
+
+        $this->expectException(OAuthClientException::class);
+        $this->expectExceptionCode(1789386788);
+        $client->renderFinishAuthorizationUri();
+    }
+
+    #[Test]
+    public function requestAccessTokenSendsNoRedirectUri(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $this->oAuthServer->append(self::createTokenResponse('the-access-token'));
+
+        $client->requestAccessToken('my-service-name', OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, 'read');
+
+        parse_str((string)$this->transactions[0]['request']->getBody(), $tokenRequestParameters);
+        self::assertArrayNotHasKey('redirect_uri', $tokenRequestParameters);
     }
 
     #[Test]
