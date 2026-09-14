@@ -24,9 +24,16 @@ final class OAuthTestClient extends OAuthClient
 
     private ?ClientInterface $httpClient = null;
 
+    private string $finishAuthorizationUri = self::TEST_BASE_URI . 'oauth/finish';
+
     public function setHttpClient(ClientInterface $httpClient): void
     {
         $this->httpClient = $httpClient;
+    }
+
+    public function setFinishAuthorizationUri(string $finishAuthorizationUri): void
+    {
+        $this->finishAuthorizationUri = $finishAuthorizationUri;
     }
 
     public static function getServiceType(): string
@@ -46,7 +53,7 @@ final class OAuthTestClient extends OAuthClient
 
     public function renderFinishAuthorizationUri(): string
     {
-        return self::TEST_BASE_URI . 'oauth/finish';
+        return $this->finishAuthorizationUri;
     }
 
     protected function createHttpClient(): ClientInterface

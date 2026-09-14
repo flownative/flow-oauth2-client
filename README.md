@@ -101,6 +101,22 @@ $authorization = $oAuthClient->getAuthorization($authorizationId);
 $metadata = json_decode($authorization->getMetadata());
 ```
 
+### Refused authorizations
+
+If the OAuth server refuses an authorization, for example because the
+user denied access, the browser still returns to the return URI. Instead
+of the authorization id, the URI then contains the error code:
+
+```php
+$errorParameterName = OAuthClient::generateAuthorizationErrorQueryParameterName($serviceType);
+$error = $request->getQueryParams()[$errorParameterName] ?? null;
+```
+
+The error codes are the ones defined by
+[RFC 6749](https://www.rfc-editor.org/rfc/rfc6749#section-4.1.2.1) and
+[OpenID Connect](https://openid.net/specs/openid-connect-core-1_0.html#AuthError),
+for example `access_denied`. Any other code arrives as `server_error`.
+
 ## Encryption
 
 By default, access tokens are serialized and stored unencrypted in the
