@@ -126,8 +126,10 @@ already keeps a random secret for the login in a cookie, create the
 binding with `BrowserBinding::fromExistingCookie()` instead.
 flownative/openidconnect-client 6.0 does this with its nonce cookie.
 
-For development without HTTPS, use `BrowserBinding::generate(false)`,
-because the cookie name can't have the `__Host-` prefix then.
+Only for development without HTTPS, use `BrowserBinding::generate(false)`,
+or pass `false` as the third argument of `fromExistingCookie()`. The
+cookie then has neither the `Secure` flag nor the `__Host-` prefix and
+protects the binding less. Never use this setting in production.
 
 ### Authorization Handle Instead of Authorization Id
 
@@ -170,6 +172,10 @@ privilege target `Flownative.OAuth2.Client:OAuth.Admin` were removed.
 The action took the client secret from the URL. Start authorizations
 from your own code instead, as shown above.
 
+If a role in the `Policy.yaml` of your application grants
+`Flownative.OAuth2.Client:OAuth.Admin`, remove that grant. Flow refuses
+to load a policy which refers to an undefined privilege target.
+
 ### Log Messages
 
 Log messages no longer contain authorization ids, states or return
@@ -206,6 +212,11 @@ Codes which RFC 6749 and OpenID Connect don't define arrive as
 A malformed, unknown, expired or already used state, and a state which
 another browser started, now result in status 400 instead of 500. This
 happens, for example, when a user reloads the page of a finished login.
+
+If the token request fails, for example because the authorization
+server rejects the code or can't be reached, the callback answers with
+status 502 and logs the reason. Before, the exception reached Flow's
+exception handling.
 
 ### Redirect URI
 

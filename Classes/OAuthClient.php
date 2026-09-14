@@ -55,6 +55,8 @@ abstract class OAuthClient
 
     private const int AUTHORIZATION_HANDLE_LIFETIME = 60; # seconds between the return from the OAuth server and claiming the authorization
 
+    private const string AUTHORIZATION_HANDLE_CACHE_IDENTIFIER_PREFIX = 'authorization_handle_';
+
     protected string $serviceName;
 
     protected EntityManagerInterface $entityManager;
@@ -400,7 +402,7 @@ abstract class OAuthClient
      */
     public function claimAuthorization(string $authorizationHandle, array $cookies): Authorization
     {
-        if (preg_match('/^[0-9a-f]{64}$/', $authorizationHandle) !== 1) {
+        if (preg_match('/^[0-9a-f]{64}\z/', $authorizationHandle) !== 1) {
             throw new UnknownAuthorizationHandleException(sprintf('OAuth (%s): The authorization handle is malformed.', static::getServiceType()), 1789395646);
         }
         $cacheIdentifier = self::getAuthorizationHandleCacheIdentifier($authorizationHandle);
@@ -416,7 +418,10 @@ abstract class OAuthClient
         if (!BrowserBinding::isPresentInCookies($handleEntry['browserBindingCookieName'] ?? '', $handleEntry['browserBindingSecretHash'] ?? '', $cookies)) {
             throw new UnknownAuthorizationHandleException(sprintf('OAuth (%s): The authorization was not started in this browser.', static::getServiceType()), 1789395649);
         }
-        $this->stateCache->remove($cacheIdentifier);
+        // Only the request which actually removes the entry may use it, because two parallel requests can both read it
+        if (!$this->stateCache->remove($cacheIdentifier)) {
+            throw new UnknownAuthorizationHandleException(sprintf('OAuth (%s): The authorization handle is unknown, expired or was already claimed.', static::getServiceType()), 1789395647);
+        }
 
         $authorization = $this->getAuthorization($handleEntry['authorizationId']);
         if ($authorization === null) {
@@ -593,8 +598,8 @@ abstract class OAuthClient
      */
     private function takeState(string $stateIdentifier, array $cookies): array
     {
-        // The cache rejects other identifiers with an exception
-        if (preg_match('/^[a-zA-Z0-9_-]{1,250}$/', $stateIdentifier) !== 1) {
+        // The cache rejects other identifiers with an exception, and the entries of authorization handles are kept in the same cache
+        if (preg_match('/^[a-zA-Z0-9_-]{1,250}\z/', $stateIdentifier) !== 1 || str_starts_with($stateIdentifier, self::AUTHORIZATION_HANDLE_CACHE_IDENTIFIER_PREFIX)) {
             throw new UnknownStateException(sprintf('OAuth (%s): The state of the returning authorization is malformed.', static::getServiceType()), 1789386787);
         }
         $stateFromCache = $this->stateCache->get($stateIdentifier);
@@ -614,7 +619,10 @@ abstract class OAuthClient
             throw new UnknownStateException(sprintf('OAuth (%s): The returning authorization was not started in this browser.', static::getServiceType()), 1789395645);
         }
 
-        $this->stateCache->remove($stateIdentifier);
+        // Only the request which actually removes the state may use it, because two parallel requests can both read it
+        if (!$this->stateCache->remove($stateIdentifier)) {
+            throw new UnknownStateException(sprintf('OAuth (%s): The state of the returning authorization is unknown, expired or was already used.', static::getServiceType()), 1558956494);
+        }
         return $stateFromCache;
     }
 
@@ -623,6 +631,6 @@ abstract class OAuthClient
      */
     private static function getAuthorizationHandleCacheIdentifier(string $authorizationHandle): string
     {
-        return 'authorization_handle_' . hash('sha256', $authorizationHandle);
+        return self::AUTHORIZATION_HANDLE_CACHE_IDENTIFIER_PREFIX . hash('sha256', $authorizationHandle);
     }
 }

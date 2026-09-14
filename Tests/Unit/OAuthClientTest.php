@@ -309,6 +309,48 @@ class OAuthClientTest extends TestCase
     }
 
     #[Test]
+    public function finishAuthorizationRejectsStateWhichAnotherRequestTookAtTheSameTime(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $state = $this->startAuthorization($client);
+        $this->letAnotherRequestRemoveCacheEntriesFirst($client);
+
+        try {
+            $client->finishAuthorization($state, 'the-code', $this->browserCookies());
+            self::fail('The state was accepted although another request removed it');
+        } catch (UnknownStateException $exception) {
+            self::assertSame(1558956494, $exception->getCode());
+        }
+        self::assertCount(0, $this->transactions);
+    }
+
+    #[Test]
+    public function finishAuthorizationRejectsStateWithTrailingLineBreak(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $state = $this->startAuthorization($client);
+
+        $this->expectException(UnknownStateException::class);
+        $this->expectExceptionCode(1789386787);
+        $client->finishAuthorization($state . "\n", 'the-code', $this->browserCookies());
+    }
+
+    #[Test]
+    public function finishAuthorizationRejectsCacheEntryOfAnAuthorizationHandle(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $authorizationHandle = $this->finishAuthorization($client);
+
+        try {
+            $client->finishAuthorization('authorization_handle_' . hash('sha256', $authorizationHandle), 'the-code', $this->browserCookies());
+            self::fail('The cache entry of an authorization handle was accepted as state');
+        } catch (UnknownStateException $exception) {
+            self::assertSame(1789386787, $exception->getCode());
+        }
+        self::assertSame(reset($this->storedAuthorizations), $client->claimAuthorization($authorizationHandle, $this->browserCookies()));
+    }
+
+    #[Test]
     public function finishAuthorizationTurnsErrorResponseOfTokenEndpointIntoException(): void
     {
         $client = $this->createClientForAuthorization();
@@ -681,6 +723,29 @@ class OAuthClientTest extends TestCase
     }
 
     #[Test]
+    public function claimAuthorizationRejectsHandleWithTrailingLineBreak(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $authorizationHandle = $this->finishAuthorization($client);
+
+        $this->expectException(UnknownAuthorizationHandleException::class);
+        $this->expectExceptionCode(1789395646);
+        $client->claimAuthorization($authorizationHandle . "\n", $this->browserCookies());
+    }
+
+    #[Test]
+    public function claimAuthorizationRejectsHandleWhichAnotherRequestClaimedAtTheSameTime(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $authorizationHandle = $this->finishAuthorization($client);
+        $this->letAnotherRequestRemoveCacheEntriesFirst($client);
+
+        $this->expectException(UnknownAuthorizationHandleException::class);
+        $this->expectExceptionCode(1789395647);
+        $client->claimAuthorization($authorizationHandle, $this->browserCookies());
+    }
+
+    #[Test]
     public function claimAuthorizationRejectsHandleOfRemovedAuthorization(): void
     {
         $client = $this->createClientForAuthorization();
@@ -973,6 +1038,22 @@ class OAuthClientTest extends TestCase
         $state = $this->startAuthorization($client);
         $this->oAuthServer->append(self::createTokenResponse('the-access-token'));
         return self::getAuthorizationHandle($client->finishAuthorization($state, 'the-code', $this->browserCookies()));
+    }
+
+    /**
+     * Makes each removal from the state cache of the given client find no entry, as if a parallel request had removed it just before
+     */
+    private function letAnotherRequestRemoveCacheEntriesFirst(OAuthTestClient $client): void
+    {
+        $racingCache = new class('state', $this->stateCache->getBackend()) extends VariableFrontend {
+            public function remove(string $entryIdentifier): bool
+            {
+                parent::remove($entryIdentifier);
+                return false;
+            }
+        };
+        $racingCache->initializeObject();
+        (new ReflectionProperty($client, 'stateCache'))->setValue($client, $racingCache);
     }
 
     private function browserCookies(): array

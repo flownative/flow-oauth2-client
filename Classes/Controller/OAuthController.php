@@ -7,15 +7,20 @@ use Flownative\OAuth2\Client\OAuthClient;
 use Flownative\OAuth2\Client\OAuthClientException;
 use Flownative\OAuth2\Client\UnknownStateException;
 use Neos\Flow\Annotations as Flow;
+use Neos\Flow\Log\Utility\LogEnvironment;
 use Neos\Flow\Mvc\Controller\ActionController;
 use Neos\Flow\Mvc\Exception\StopActionException;
 use Neos\Flow\Mvc\Exception\UnsupportedRequestTypeException;
 use Neos\Flow\ObjectManagement\ObjectManagerInterface;
 use Neos\Flow\Reflection\ReflectionService;
+use Psr\Log\LoggerInterface;
 
 final class OAuthController extends ActionController
 {
     private array $serviceTypes;
+
+    #[Flow\Inject]
+    protected ?LoggerInterface $logger = null;
 
     /**
      * @return void
@@ -60,6 +65,10 @@ final class OAuthController extends ActionController
             $returnToUri = $error !== '' ? $client->finishAuthorizationWithError($state, $error, $cookies) : $client->finishAuthorization($state, $code, $cookies);
         } catch (UnknownStateException) {
             $this->throwStatus(400, null, 'The authorization is unknown, has expired or was started in another browser. Please start again.');
+        } catch (OAuthClientException $exception) {
+            // Flow's exception handling would store the URL of this request, which contains the code and the state
+            $this->logger?->error(sprintf('OAuth (%s): Finishing the authorization for service "%s" failed: %s', $serviceType, $serviceName, $exception->getMessage()), LogEnvironment::fromMethodName(__METHOD__));
+            $this->throwStatus(502, null, 'The authorization server could not complete the authorization. Please start again later.');
         }
         $this->redirectToUri($returnToUri);
     }

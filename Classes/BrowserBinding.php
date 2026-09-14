@@ -52,13 +52,15 @@ final readonly class BrowserBinding
 
     /**
      * Uses a random secret which the application already keeps in the given cookie
+     *
+     * @param bool $secureCookie false only for development without HTTPS. Names with the "__Host-" or "__Secure-" prefix always get a secure cookie
      */
-    public static function fromExistingCookie(string $cookieName, string $secret): self
+    public static function fromExistingCookie(string $cookieName, string $secret, bool $secureCookie = true): self
     {
         if ($cookieName === '' || strlen($secret) < self::MINIMUM_SECRET_LENGTH) {
             throw new InvalidArgumentException(sprintf('A browser binding needs a cookie name and a secret of at least %d characters.', self::MINIMUM_SECRET_LENGTH), 1789395651);
         }
-        return new self($cookieName, $secret, self::hasSecurePrefix($cookieName));
+        return new self($cookieName, $secret, $secureCookie || self::hasSecurePrefix($cookieName));
     }
 
     public function getSecretHash(): string

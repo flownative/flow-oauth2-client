@@ -76,6 +76,22 @@ class BrowserBindingTest extends TestCase
     }
 
     #[Test]
+    public function fromExistingCookieCreatesSecureCookieByDefault(): void
+    {
+        $binding = BrowserBinding::fromExistingCookie('my_login_cookie', str_repeat('a', 64));
+
+        self::assertTrue($binding->createCookie()->isSecure());
+    }
+
+    #[Test]
+    public function fromExistingCookieCreatesInsecureCookieOnlyForNamesWithoutSecurePrefix(): void
+    {
+        self::assertFalse(BrowserBinding::fromExistingCookie('my_login_cookie', str_repeat('a', 64), false)->createCookie()->isSecure());
+        self::assertTrue(BrowserBinding::fromExistingCookie('__Host-my_login_cookie', str_repeat('a', 64), false)->createCookie()->isSecure());
+        self::assertTrue(BrowserBinding::fromExistingCookie('__Secure-my_login_cookie', str_repeat('a', 64), false)->createCookie()->isSecure());
+    }
+
+    #[Test]
     public function fromExistingCookieRejectsShortSecrets(): void
     {
         $this->expectException(InvalidArgumentException::class);
