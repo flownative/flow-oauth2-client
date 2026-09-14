@@ -21,8 +21,11 @@ use Ramsey\Uuid\Uuid;
 
 /**
  * An OAuth2 Authorization
+ *
+ * The mapping uses annotations instead of attributes, because Flow 8.3 reads the Doctrine mapping of entities only from annotations.
+ *
+ * @Flow\Entity
  */
-#[Flow\Entity]
 class Authorization
 {
     public const string GRANT_AUTHORIZATION_CODE = 'authorization_code';
@@ -30,8 +33,8 @@ class Authorization
 
     /**
      * @var string
+     * @ORM\Id
      */
-    #[ORM\Id]
     protected $authorizationId;
 
     /**
@@ -40,7 +43,6 @@ class Authorization
     protected $serviceName;
 
     /**
-     * /**
      * @var string
      */
     protected $clientId;
@@ -57,32 +59,32 @@ class Authorization
 
     /**
      * @var \DateTimeImmutable
+     * @ORM\Column(nullable=true)
      */
-    #[ORM\Column(nullable: true)]
     protected $expires;
 
     /**
      * @var string
+     * @ORM\Column(type="text", nullable=true)
      */
-    #[ORM\Column(type: 'text', nullable: true)]
     protected $serializedAccessToken;
 
     /**
      * @var string
+     * @ORM\Column(type="text", nullable=true)
      */
-    #[ORM\Column(type: 'text', nullable: true)]
     protected $encryptedSerializedAccessToken;
 
     /**
      * @var string
+     * @ORM\Column(type="text", nullable=true)
      */
-    #[ORM\Column(type: 'text', nullable: true)]
     protected $metadata;
 
     /**
      * @var EncryptionService
+     * @Flow\Transient
      */
-    #[Flow\Transient]
     protected $encryptionService;
 
     public function __construct(string $authorizationId, string $serviceName, string $clientId, string $grantType, string $scope)
