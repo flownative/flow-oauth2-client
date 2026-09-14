@@ -54,6 +54,7 @@ class Authorization
 
     /**
      * @var string
+     * @ORM\Column(type="text")
      */
     protected $scope;
 

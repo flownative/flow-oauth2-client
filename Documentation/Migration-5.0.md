@@ -7,6 +7,7 @@ Applications which extend `OAuthClient` or call its methods directly
 should read the whole guide.
 
 - [Requirements](#requirements)
+- [Database Migration](#database-migration)
 - [Encryption Key](#encryption-key)
 - [Client Credentials](#client-credentials)
 - [Authorization Code Flow](#authorization-code-flow)
@@ -21,6 +22,21 @@ should read the whole guide.
 
 The pure PHP polyfill paragonie/sodium_compat is no longer installed.
 The "sodium" extension ships with all common PHP distributions.
+
+## Database Migration
+
+Run the Doctrine migrations after the update:
+
+```bash
+./flow doctrine:migrate
+```
+
+The column `scope` of the table `flownative_oauth2_client_authorization`
+now holds text of any length. Authorizations store the scope which the
+authorization server granted, and some servers grant long lists of
+permissions. Auth0, for example, returns all permissions of the
+Management API if no scope was requested. Without the migration,
+storing such a token fails.
 
 ## Encryption Key
 
