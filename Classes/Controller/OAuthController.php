@@ -13,14 +13,10 @@ use Neos\Flow\Mvc\Exception\StopActionException;
 use Neos\Flow\Mvc\Exception\UnsupportedRequestTypeException;
 use Neos\Flow\ObjectManagement\ObjectManagerInterface;
 use Neos\Flow\Reflection\ReflectionService;
-use Psr\Log\LoggerInterface;
 
 final class OAuthController extends ActionController
 {
     private array $serviceTypes;
-
-    #[Flow\Inject]
-    protected ?LoggerInterface $logger = null;
 
     /**
      * @return void
