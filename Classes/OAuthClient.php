@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Flownative\OAuth2\Client;
 
 use Doctrine\ORM\EntityManagerInterface;
+use GuzzleHttp\Client as HttpClient;
+use GuzzleHttp\ClientInterface;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Psr7\Uri;
 use League\OAuth2\Client\Provider\Exception\IdentityProviderException;
@@ -431,8 +433,19 @@ abstract class OAuthClient
             'urlAccessToken' => $this->getAccessTokenUri(),
             'urlResourceOwnerDetails' => $this->getResourceOwnerUri(),
         ], [
-            'requestFactory' => $this->getRequestFactory()
+            'requestFactory' => $this->getRequestFactory(),
+            'httpClient' => $this->createHttpClient(),
         ]);
+    }
+
+    /**
+     * Returns the HTTP client for requests to the OAuth server
+     *
+     * Override this method to configure timeouts or a proxy, or to replace the client in tests.
+     */
+    protected function createHttpClient(): ClientInterface
+    {
+        return new HttpClient();
     }
 
     protected function removeExpiredAuthorizations(): void

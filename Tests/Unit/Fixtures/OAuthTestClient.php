@@ -14,12 +14,20 @@ namespace Flownative\OAuth2\Client\Tests\Unit\Fixtures;
  */
 
 use Flownative\OAuth2\Client\OAuthClient;
+use GuzzleHttp\ClientInterface;
 
 final class OAuthTestClient extends OAuthClient
 {
     public const TEST_SERVICE_TYPE = 'TestServiceType';
     public const TEST_BASE_URI = 'https://localbeach.net/';
     public const TEST_CLIENT_ID = 'my-client-id';
+
+    private ?ClientInterface $httpClient = null;
+
+    public function setHttpClient(ClientInterface $httpClient): void
+    {
+        $this->httpClient = $httpClient;
+    }
 
     public static function getServiceType(): string
     {
@@ -39,5 +47,10 @@ final class OAuthTestClient extends OAuthClient
     public function renderFinishAuthorizationUri(): string
     {
         return self::TEST_BASE_URI . 'oauth/finish';
+    }
+
+    protected function createHttpClient(): ClientInterface
+    {
+        return $this->httpClient ?? parent::createHttpClient();
     }
 }

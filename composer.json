@@ -41,6 +41,11 @@
             "Flownative\\OAuth2\\Client\\": "Classes"
         }
     },
+    "autoload-dev": {
+        "psr-4": {
+            "Flownative\\OAuth2\\Client\\Tests\\": "Tests"
+        }
+    },
     "extra": {
         "applied-flow-migrations": [
             "TYPO3.Form-20160601101500",
