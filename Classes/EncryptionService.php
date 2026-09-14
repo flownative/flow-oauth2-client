@@ -15,10 +15,14 @@ class EncryptionService {
 
     public function initializeObject(): void
     {
-        $this->key = base64_decode($this->base64EncodedKey, true);
-        if ($this->key === false) {
+        $key = base64_decode($this->base64EncodedKey, true);
+        if ($key === false) {
             throw new \RuntimeException('Failed base64-decoding the encryption key provided as setting encryption.base64EncodedKey', 1604935600);
         }
+        if ($key !== '' && strlen($key) !== SODIUM_CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES) {
+            throw new \RuntimeException(sprintf('The encryption key provided as setting encryption.base64EncodedKey must be %d bytes long. Generate one with ./flow oauth:generateencryptionkey', SODIUM_CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES), 1789145563);
+        }
+        $this->key = $key;
     }
 
     public function setKey(string $key): void

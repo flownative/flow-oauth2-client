@@ -13,14 +13,17 @@ and examples for generic use are missing.
 
 ## Authorizations
 
-This package stores states and tokens as "authorizations" in a dedicated
-database table.  
+This package stores tokens as "authorizations" in a dedicated database
+table.
 
-For example, during the authorization code flow, this package needs to
-keep track of a "state" in order to make sense of an incoming "finish
-authorization" request. Another example is the client credentials flow,
-where an access token is stored in the authorizations table which is
-needed for executing authorized requests to the respective service.
+For example, the authorization code flow ends with a token, which is
+stored in the authorizations table. While the flow is in progress, this
+package keeps track of its "state" in the cache
+"Flownative_OAuth2_Client_State", in order to make sense of the incoming
+"finish authorization" request. Another example is the client
+credentials flow, where an access token is stored in the authorizations
+table which is needed for executing authorized requests to the
+respective service.
 
 ### Token lifetime
 
@@ -45,9 +48,9 @@ Flownative:
         #   20    (would be a 20% chance to clean up)
         #    0.42 (would be a 0.42 % chance to clean up)
         probability: 1
-    token:
-      # default lifetime of new tokens in seconds
-      defaultLifetime: 600
+      token:
+        # default lifetime of new tokens in seconds
+        defaultLifetime: 600
 ```
 
 Note: By setting the `defaultLifetime` to `null`, new tokens won't expire
@@ -77,11 +80,11 @@ $loginUri = $oAuthClient->startAuthorizationWithId(
 $oAuthClient->setAuthorizationMetadata($authorizationId, json_encode($metadata));
 ```
 
-And later, in `finishAuthorization()`, you may retrieve the metadata as
-follows:
+And later, when the authorization is finished, you may retrieve the
+metadata as follows:
 
 ```php
-$authorization = $this->getAuthorization($authorizationId);
+$authorization = $oAuthClient->getAuthorization($authorizationId);
 $metadata = json_decode($authorization->getMetadata());
 ```
 
@@ -90,16 +93,14 @@ $metadata = json_decode($authorization->getMetadata());
 By default, access tokens are serialized and stored unencrypted in the
 "authorizations" database table. You can improve the security of your
 application by enabling the encrypted-at-rest feature of this package.
-when active, it will encrypt tokens before storing them in the database
-and decrypt them automatically when they are retrieved. The secret key
+When active, it encrypts tokens before storing them in the database and
+decrypts them automatically when they are retrieved. The secret key
 which is needed for encryption and decryption is not stored in the
 database.
 
 This package uses the "ChaCha20-Poly1305-IETF" construction for
-authenticated encryption / decryption of serialized tokens. It uses the
-["sodium" PHP extension](https://www.php.net/sodium) if installed, or
-[a polyfill implementation](https://packagist.org/packages/paragonie/sodium_compat)
-in pure PHP.
+authenticated encryption / decryption of serialized tokens, provided by
+the ["sodium" PHP extension](https://www.php.net/sodium).
 
 ### Generating a Secret Key
 
@@ -136,7 +137,7 @@ expected. Run your application so that a new authorization is created.
 Check the database table `flownative_oauth2_client_authorization`: the
 column `serializedaccesstoken` should be empty and the column
 `encryptedserializedaccesstoken` should contain a long string similar to
-his one:
+this one:
 
 ```
 ChaCha20-Poly1305-IETF$Mjdj4s9IFrPp6HFK$k9v3x…KQ==

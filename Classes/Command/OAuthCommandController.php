@@ -41,7 +41,8 @@ final class OAuthCommandController extends CommandController
         foreach ($authorizations as $authorization) {
             assert($authorization instanceof Authorization);
             $accessToken = $authorization->getAccessToken();
-            $expires = $accessToken ? \DateTimeImmutable::createFromFormat('U', $accessToken->getExpires())->format('d.m.Y H:i:s') : '';
+            $expirationTimestamp = $accessToken?->getExpires();
+            $expires = $expirationTimestamp !== null ? (new \DateTimeImmutable('@' . $expirationTimestamp))->format('d.m.Y H:i:s') : '';
             $values = $accessToken ? implode(', ', array_keys($accessToken->getValues())) : '';
 
             $rows[] = [
@@ -71,7 +72,7 @@ final class OAuthCommandController extends CommandController
     public function removeAuthorizationsCommand(string $id = '', bool $all = false): void
     {
         if (empty($id) && !$all) {
-            $this->outputLine('<error>Please specify either --authorization-id or --all.</error>');
+            $this->outputLine('<error>Please specify either --id or --all.</error>');
             exit(1);
         }
 
@@ -117,6 +118,7 @@ final class OAuthCommandController extends CommandController
         }
         if ($construction !== 'ChaCha20-Poly1305-IETF') {
             $this->outputLine('<error>Currently only ChaCha20-Poly1305-IETF is supported</error>');
+            exit(1);
         }
 
         $encryptionService = new EncryptionService();
