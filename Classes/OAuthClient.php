@@ -286,6 +286,9 @@ abstract class OAuthClient
             $this->stateCache->set(
                 $oAuthProvider->getState(),
                 [
+                    'serviceType' => static::getServiceType(),
+                    'serviceName' => $this->getServiceName(),
+                    'tokenEndpoint' => $this->getAccessTokenUri(),
                     'authorizationId' => $authorizationId,
                     'clientId' => $clientId,
                     'clientSecret' => $clientSecret,
@@ -319,18 +322,17 @@ abstract class OAuthClient
         $authorizationId = $stateFromCache['authorizationId'];
         $clientId = $stateFromCache['clientId'];
         $clientSecret = $stateFromCache['clientSecret'];
-        // TODO: Remove the fallbacks for the redirect URI and the scope in 6.0, they only serve states which were stored by 4.x
-        $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret, $stateFromCache['redirectUri'] ?? $this->renderFinishAuthorizationUri());
+        $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret, $stateFromCache['redirectUri']);
 
         $this->logger?->info(sprintf('OAuth (%s): Finishing authorization for client "%s", authorization id "%s", using state %s.', static::getServiceType(), $clientId, $authorizationId, $stateIdentifier));
         try {
             // An authorization with the same id exists if startAuthorizationWithId() was called with the id of a finished authorization
             $authorization = $this->entityManager->find(Authorization::class, $authorizationId);
             if ($authorization === null) {
-                $authorization = new Authorization($authorizationId, static::getServiceType(), $clientId, Authorization::GRANT_AUTHORIZATION_CODE, $stateFromCache['scope'] ?? '');
+                $authorization = new Authorization($authorizationId, static::getServiceType(), $clientId, Authorization::GRANT_AUTHORIZATION_CODE, $stateFromCache['scope']);
             } elseif ($authorization->getGrantType() !== Authorization::GRANT_AUTHORIZATION_CODE) {
                 throw new OAuthClientException(sprintf('OAuth2 (%s): Finishing authorization failed because authorization %s does not have the authorization code flow type!', static::getServiceType(), $authorizationId), 1597312780);
-            } elseif (isset($stateFromCache['scope'])) {
+            } else {
                 $authorization->setScope($stateFromCache['scope']);
             }
             if (is_string($stateFromCache['metadata'] ?? null)) {
@@ -505,6 +507,9 @@ abstract class OAuthClient
     /**
      * Returns the data which was stored for the given state and removes it, so that each state is accepted only once
      *
+     * Only the client of the service which started the authorization accepts the state. The state contains the credentials
+     * of that service, which must never be sent to the token endpoint of another service.
+     *
      * @throws UnknownStateException
      */
     private function takeState(string $stateIdentifier): array
@@ -517,6 +522,15 @@ abstract class OAuthClient
         if (!is_array($stateFromCache)) {
             throw new UnknownStateException(sprintf('OAuth (%s): The state of the returning authorization is unknown, expired or was already used.', static::getServiceType()), 1558956494);
         }
+
+        // The state is not removed, so that a request to the wrong callback URL can't cancel an authorization in progress
+        if (($stateFromCache['serviceType'] ?? null) !== static::getServiceType() || ($stateFromCache['serviceName'] ?? null) !== $this->getServiceName()) {
+            throw new UnknownStateException(sprintf('OAuth (%s): The state of the returning authorization belongs to another service than "%s".', static::getServiceType(), $this->getServiceName()), 1789391698);
+        }
+        if (($stateFromCache['tokenEndpoint'] ?? null) !== $this->getAccessTokenUri()) {
+            throw new UnknownStateException(sprintf('OAuth (%s): The token endpoint of service "%s" has changed since the authorization was started.', static::getServiceType(), $this->getServiceName()), 1789391699);
+        }
+
         $this->stateCache->remove($stateIdentifier);
         return $stateFromCache;
     }

@@ -16,7 +16,7 @@ namespace Flownative\OAuth2\Client\Tests\Unit\Fixtures;
 use Flownative\OAuth2\Client\OAuthClient;
 use GuzzleHttp\ClientInterface;
 
-final class OAuthTestClient extends OAuthClient
+class OAuthTestClient extends OAuthClient
 {
     public const TEST_SERVICE_TYPE = 'TestServiceType';
     public const TEST_BASE_URI = 'https://localbeach.net/';

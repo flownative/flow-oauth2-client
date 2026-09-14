@@ -49,6 +49,10 @@ class OAuthClientTest extends TestCase
 
     private MockHandler $oAuthServer;
 
+    private ?VariableFrontend $stateCache = null; # shared by all clients of a test, like the state cache of an application
+
+    private ?HttpClient $httpClient = null;
+
     #[Test]
     public function constructorSetsServiceName(): void
     {
@@ -309,6 +313,95 @@ class OAuthClientTest extends TestCase
 
         parse_str((string)$this->transactions[0]['request']->getBody(), $tokenRequestParameters);
         self::assertSame(OAuthTestClient::TEST_BASE_URI . 'oauth/finish', $tokenRequestParameters['redirect_uri']);
+    }
+
+    #[Test]
+    public function finishAuthorizationRejectsStateOfAnotherServiceNameAndKeepsIt(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid'));
+        $otherClient = $this->createClientForAuthorization(new OAuthTestClient('other-service-name'));
+
+        try {
+            $otherClient->finishAuthorization($state, 'the-code');
+            self::fail('The state of another service was accepted');
+        } catch (UnknownStateException $exception) {
+            self::assertSame(1789391698, $exception->getCode());
+        }
+        self::assertSame([], $this->transactions);
+
+        $this->oAuthServer->append(self::createTokenResponse('the-access-token'));
+        $client->finishAuthorization($state, 'the-code');
+        self::assertCount(1, $this->storedAuthorizations);
+    }
+
+    #[Test]
+    public function finishAuthorizationAcceptsStateOfTheServiceWhichStartedTheAuthorization(): void
+    {
+        $client = $this->createClientForAuthorization(new OAuthTestClient('another-service-name'));
+        $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid'));
+        $this->oAuthServer->append(self::createTokenResponse('the-access-token'));
+
+        $client->finishAuthorization($state, 'the-code');
+
+        self::assertCount(1, $this->storedAuthorizations);
+    }
+
+    #[Test]
+    public function finishAuthorizationRejectsStateOfAnotherServiceType(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid'));
+        $otherClient = $this->createClientForAuthorization(new class('my-service-name') extends OAuthTestClient {
+            public static function getServiceType(): string
+            {
+                return 'OtherServiceType';
+            }
+        });
+
+        $this->expectException(UnknownStateException::class);
+        $this->expectExceptionCode(1789391698);
+        $otherClient->finishAuthorization($state, 'the-code');
+    }
+
+    #[Test]
+    public function finishAuthorizationRejectsStateIfTheTokenEndpointHasChanged(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid'));
+        $otherClient = $this->createClientForAuthorization(new class('my-service-name') extends OAuthTestClient {
+            public function getAccessTokenUri(): string
+            {
+                return 'https://other-server.example.com/oauth/token';
+            }
+        });
+
+        $this->expectException(UnknownStateException::class);
+        $this->expectExceptionCode(1789391699);
+        $otherClient->finishAuthorization($state, 'the-code');
+    }
+
+    #[Test]
+    public function finishAuthorizationWithErrorRejectsStateOfAnotherService(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid'));
+        $otherClient = $this->createClientForAuthorization(new OAuthTestClient('other-service-name'));
+
+        $this->expectException(UnknownStateException::class);
+        $this->expectExceptionCode(1789391698);
+        $otherClient->finishAuthorizationWithError($state, 'access_denied');
+    }
+
+    #[Test]
+    public function finishAuthorizationRejectsStateWhichNamesNoService(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $this->stateCache->set('0123456789abcdef0123456789abcdef', ['authorizationId' => 'some-authorization', 'clientId' => OAuthTestClient::TEST_CLIENT_ID, 'clientSecret' => self::CLIENT_SECRET, 'returnToUri' => self::RETURN_URI]);
+
+        $this->expectException(UnknownStateException::class);
+        $this->expectExceptionCode(1789391698);
+        $client->finishAuthorization('0123456789abcdef0123456789abcdef', 'the-code');
     }
 
     #[Test]
@@ -601,19 +694,22 @@ class OAuthClientTest extends TestCase
         $client->setAuthorizationMetadata('unknown-authorization', '{}');
     }
 
-    private function createClientForAuthorization(): OAuthTestClient
+    private function createClientForAuthorization(?OAuthTestClient $client = null): OAuthTestClient
     {
-        $stateCache = new VariableFrontend('state', new TransientMemoryBackend());
-        $stateCache->initializeObject();
+        if ($this->stateCache === null) {
+            $this->stateCache = new VariableFrontend('state', new TransientMemoryBackend());
+            $this->stateCache->initializeObject();
 
-        $this->oAuthServer = new MockHandler();
-        $handlerStack = HandlerStack::create($this->oAuthServer);
-        $handlerStack->push(Middleware::history($this->transactions));
+            $this->oAuthServer = new MockHandler();
+            $handlerStack = HandlerStack::create($this->oAuthServer);
+            $handlerStack->push(Middleware::history($this->transactions));
+            $this->httpClient = new HttpClient(['handler' => $handlerStack]);
+        }
 
-        $client = new OAuthTestClient('my-service-name');
+        $client ??= new OAuthTestClient('my-service-name');
         $client->injectEntityManager($this->createInMemoryEntityManager());
-        $client->setHttpClient(new HttpClient(['handler' => $handlerStack]));
-        (new ReflectionProperty($client, 'stateCache'))->setValue($client, $stateCache);
+        $client->setHttpClient($this->httpClient);
+        (new ReflectionProperty($client, 'stateCache'))->setValue($client, $this->stateCache);
         (new ReflectionProperty($client, 'logger'))->setValue($client, $this->createStub(LoggerInterface::class));
         return $client;
     }
