@@ -117,6 +117,37 @@ class AuthorizationTest extends TestCase
     }
 
     #[Test]
+    public function setAccessTokenRemovesUnencryptedTokenOnceEncryptionIsConfigured(): void
+    {
+        $authorization = new Authorization('3d47f0eafd6a8b49e32b55103d817b6e4ef489e7', 'service', 'clientId', Authorization::GRANT_CLIENT_CREDENTIALS, '');
+        $authorization->setAccessToken($this->createValidAccessToken());
+        $encryptionService = new EncryptionService();
+        $encryptionService->setKey($encryptionService->generateEncryptionKey());
+        $authorization->injectEncryptionService($encryptionService);
+
+        $authorization->setAccessToken($this->createValidAccessToken());
+
+        self::assertSame('', $authorization->getSerializedAccessToken());
+        self::assertNotSame('', $authorization->getEncryptedSerializedAccessToken());
+    }
+
+    #[Test]
+    public function setAccessTokenRemovesEncryptedTokenOnceEncryptionIsNoLongerConfigured(): void
+    {
+        $encryptionService = new EncryptionService();
+        $encryptionService->setKey($encryptionService->generateEncryptionKey());
+        $authorization = new Authorization('3d47f0eafd6a8b49e32b55103d817b6e4ef489e7', 'service', 'clientId', Authorization::GRANT_CLIENT_CREDENTIALS, '');
+        $authorization->injectEncryptionService($encryptionService);
+        $authorization->setAccessToken($this->createValidAccessToken());
+        $encryptionService->setKey('');
+
+        $authorization->setAccessToken($this->createValidAccessToken());
+
+        self::assertSame('', $authorization->getEncryptedSerializedAccessToken());
+        self::assertNotSame('', $authorization->getSerializedAccessToken());
+    }
+
+    #[Test]
     public function getAccessTokenFailsOnEncryptedTokenIfKeyWasChanged(): void
     {
         $accessToken = $this->createValidAccessToken();
@@ -138,12 +169,27 @@ class AuthorizationTest extends TestCase
     }
 
     #[Test]
-    public function generateAuthorizationIdForClientCredentialsGrantReturnsSha512Hash(): void
+    public function generateAuthorizationIdForClientCredentialsGrantReturnsSameIdForSameParameters(): void
     {
-        $authorizationId = Authorization::generateAuthorizationIdForClientCredentialsGrant(
-            'oidc_test', 'ac36cGG4d2Cef1DeuevA7T1u7V4WOUI14', 'CMc4EHfyMPLw}Tua%rnyxCnrTWMuX3', 'oidc profile', ['audience' => 'https://www.example.com']
+        $authorizationId = Authorization::generateAuthorizationIdForClientCredentialsGrant('oidc_test', 'ac36cGG4d2Cef1DeuevA7T1u7V4WOUI14', 'oidc profile', ['audience' => 'https://www.example.com']);
+
+        self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $authorizationId);
+        self::assertSame($authorizationId, Authorization::generateAuthorizationIdForClientCredentialsGrant('oidc_test', 'ac36cGG4d2Cef1DeuevA7T1u7V4WOUI14', 'oidc profile', ['audience' => 'https://www.example.com']));
+        self::assertNotSame($authorizationId, Authorization::generateAuthorizationIdForClientCredentialsGrant('oidc_test', 'ac36cGG4d2Cef1DeuevA7T1u7V4WOUI14', 'oidc', ['audience' => 'https://www.example.com']));
+        self::assertNotSame($authorizationId, Authorization::generateAuthorizationIdForClientCredentialsGrant('oidc_test', 'ac36cGG4d2Cef1DeuevA7T1u7V4WOUI14', 'oidc profile', ['audience' => 'https://api.example.com']));
+    }
+
+    #[Test]
+    public function generateAuthorizationIdForClientCredentialsGrantKeepsAdjacentParametersApart(): void
+    {
+        self::assertNotSame(
+            Authorization::generateAuthorizationIdForClientCredentialsGrant('serviceA', 'client', 'read'),
+            Authorization::generateAuthorizationIdForClientCredentialsGrant('service', 'Aclient', 'read')
         );
-        self::assertSame('c2d332337e6765c1f6876fe61c6bc63e98c1d3018ff5b56899ee54a1d1e8b1a5272b9ae9f73dc37429bccec583c3754d52bd8ef4e0f05001aa02a50e24b654a5', $authorizationId);
+        self::assertNotSame(
+            Authorization::generateAuthorizationIdForClientCredentialsGrant('service', 'client', 'read write'),
+            Authorization::generateAuthorizationIdForClientCredentialsGrant('service', 'client read', 'write')
+        );
     }
 
     /**

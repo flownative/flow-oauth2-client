@@ -18,9 +18,9 @@ Flownative:
 #          className: 'Flownative\Beach\BeachClient'
 
       token:
-        # Lifetime in seconds of tokens from the authorization code flow which
-        # do not specify an expiration time. With null, such tokens are kept
-        # until they are removed explicitly.
+        # Lifetime in seconds of tokens which do not specify an expiration
+        # time. With null, such tokens are kept until they are removed or
+        # replaced.
         defaultLifetime: 600 # 600 seconds = 10 minutes
 
       encryption:

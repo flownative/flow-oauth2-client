@@ -30,13 +30,11 @@ respective service.
 An authorization expires together with its token. Expired
 authorizations are removed by the garbage collection.
 
-Tokens from the authorization code flow which don't specify an
-expiration time get a default lifetime of 600 seconds (10 minutes). An
-authorization code flow is stored as an authorization only when it
-finishes. Until then, it is kept in the state cache, where it expires
-after one hour.
-Tokens from the client credentials flow without an expiration time
-don't expire. They are replaced when a new token is requested.
+Tokens which don't specify an expiration time get a default lifetime of
+600 seconds (10 minutes). A token of the client credentials flow is
+replaced only when the new token was issued. An authorization code flow
+is stored as an authorization only when it finishes. Until then, it is
+kept in the state cache, where it expires after one hour.
 
 The default token lifetime and the frequency of the garbage collection
 can be configured:
@@ -55,8 +53,7 @@ Flownative:
         #    0.001 (a 0.001 % chance to clean up)
         probability: 1
       token:
-        # Lifetime in seconds of tokens from the authorization code flow which
-        # do not specify an expiration time
+        # Lifetime in seconds of tokens which do not specify an expiration time
         defaultLifetime: 600
 ```
 
