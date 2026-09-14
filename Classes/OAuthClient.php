@@ -11,6 +11,7 @@ use GuzzleHttp\Psr7\Uri;
 use League\OAuth2\Client\Provider\Exception\IdentityProviderException;
 use League\OAuth2\Client\Provider\GenericProvider;
 use League\OAuth2\Client\Tool\RequestFactory;
+use League\OAuth2\Client\Token\AccessTokenInterface;
 use Neos\Cache\Exception;
 use Neos\Cache\Frontend\VariableFrontend;
 use Neos\Flow\Annotations as Flow;
@@ -41,6 +42,8 @@ abstract class OAuthClient
     public const string AUTHORIZATION_ERROR_QUERY_PARAMETER_NAME_PREFIX = 'flownative_oauth2_error';
 
     private const array RESERVED_AUTHORIZATION_PARAMETER_NAMES = ['client_id', 'client_secret', 'redirect_uri', 'response_type', 'response_mode', 'scope', 'state', 'code_challenge', 'code_challenge_method', 'request', 'request_uri'];
+
+    private const array RESERVED_TOKEN_REQUEST_PARAMETER_NAMES = ['grant_type', 'client_id', 'client_secret', 'redirect_uri', 'scope', 'code', 'code_verifier', 'refresh_token'];
 
     /**
      * Error codes of RFC 6749, section 4.1.2.1, and OpenID Connect Core, section 3.1.2.6
@@ -184,37 +187,33 @@ abstract class OAuthClient
     /**
      * Requests an access token.
      *
-     * This method is used using the OAuth Client Credentials Flow for machine-to-machine applications.
-     * Therefore the grant type must be Authorization::GRANT_CLIENT_CREDENTIALS. You need to specify the
-     * client identifier and client secret and may optionally specify a scope.
+     * This method is used using the OAuth Client Credentials Flow for machine-to-machine applications. The token is stored as an
+     * authorization, whose id Authorization::generateAuthorizationIdForClientCredentialsGrant() returns for the same arguments.
+     * An existing token is replaced only after the new token was issued.
      *
-     * - The scope which may consist of multiple identifiers, separated by comma.
+     * - The scope may consist of multiple identifiers, separated by space. An empty scope is not sent, so that the server uses its default.
      * - Additional parameters to provide in the request body while requesting the token, like ['audience' => 'https://www.example.com/api/v1']
      *
      * @throws IdentityProviderException
      * @throws GuzzleException
      */
-    public function requestAccessToken(string $serviceName, string $clientId, string $clientSecret, string $scope,  array $additionalParameters = []): void
+    public function requestAccessToken(string $serviceName, string $clientId, string $clientSecret, string $scope, array $additionalParameters = []): void
     {
-        $authorizationId = Authorization::generateAuthorizationIdForClientCredentialsGrant($serviceName, $clientId, $clientSecret, $scope, $additionalParameters);
-        $this->logger?->info(sprintf('OAuth (%s): Retrieving access token using client credentials grant for client "%s" using a %s bytes long secret. (authorization id: %s)', static::getServiceType(), $clientId, strlen($clientSecret), $authorizationId));
-
-        $existingAuthorization = $this->getAuthorization($authorizationId);
-        if ($existingAuthorization !== null) {
-            $this->entityManager->remove($existingAuthorization);
-            $this->entityManager->flush();
-
-            $this->logger?->info(sprintf('OAuth (%s): Removed old OAuth token for client "%s". (authorization id: %s)', static::getServiceType(), $clientId, $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
+        $reservedParameterNames = array_intersect(array_keys($additionalParameters), self::RESERVED_TOKEN_REQUEST_PARAMETER_NAMES);
+        if ($reservedParameterNames !== []) {
+            throw new \InvalidArgumentException(sprintf('OAuth (%s): The additional parameters must not contain "%s", because the client sets them itself.', static::getServiceType(), implode('", "', $reservedParameterNames)), 1789391047);
         }
 
-        $accessToken = $this->createOAuthProvider($clientId, $clientSecret)->getAccessToken(Authorization::GRANT_CLIENT_CREDENTIALS, $additionalParameters);
-        $authorization = new Authorization($authorizationId, $serviceName, $clientId, Authorization::GRANT_CLIENT_CREDENTIALS, $scope);
-        $authorization->setAccessToken($accessToken);
+        $authorizationId = Authorization::generateAuthorizationIdForClientCredentialsGrant($serviceName, $clientId, $scope, $additionalParameters);
+        $this->logger?->info(sprintf('OAuth (%s): Retrieving access token using client credentials grant for client "%s". (authorization id: %s)', static::getServiceType(), $clientId, $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
 
-        $this->logger?->info(sprintf('OAuth (%s): Persisted new OAuth authorization %s for client "%s" with expiry time %s. (authorization id: %s)', static::getServiceType(), $authorizationId, $clientId, $accessToken->getExpires(), $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
+        $tokenRequestParameters = $scope !== '' ? [...$additionalParameters, 'scope' => $scope] : $additionalParameters;
+        $accessToken = $this->createOAuthProvider($clientId, $clientSecret)->getAccessToken(Authorization::GRANT_CLIENT_CREDENTIALS, $tokenRequestParameters);
 
-        $this->entityManager->persist($authorization);
-        $this->entityManager->flush();
+        $authorization = $this->getAuthorization($authorizationId) ?? new Authorization($authorizationId, $serviceName, $clientId, Authorization::GRANT_CLIENT_CREDENTIALS, $scope);
+        $this->storeAccessToken($authorization, $accessToken);
+
+        $this->logger?->info(sprintf('OAuth (%s): Persisted new OAuth authorization %s for client "%s" with expiry time %s.', static::getServiceType(), $authorizationId, $clientId, $accessToken->getExpires()), LogEnvironment::fromMethodName(__METHOD__));
     }
 
     /**
@@ -345,21 +344,7 @@ abstract class OAuthClient
                 throw new OAuthClientException(sprintf('OAuth (%s): The token request for authorization "%s" failed: %s', static::getServiceType(), $authorizationId, $exception->getMessage()), 1789386786, $exception);
             }
             $this->logger?->info(sprintf('OAuth (%s): Persisting OAuth token for authorization "%s" with expiry time %s.', static::getServiceType(), $authorizationId, $accessToken->getExpires()));
-
-            $authorization->setAccessToken($accessToken);
-            if ($accessToken->getExpires() === null) {
-                $authorization->setExpires($this->defaultTokenLifetime !== null ? new \DateTimeImmutable('@' . (time() + $this->defaultTokenLifetime)) : null);
-            }
-
-            // The token response only contains the scope if the server granted a different one (RFC 6749, section 5.1)
-            $grantedScope = $accessToken->getValues()['scope'] ?? null;
-            if (is_string($grantedScope)) {
-                $authorization->setScope($grantedScope);
-            }
-
-            $this->entityManager->persist($authorization);
-            $this->entityManager->flush();
-
+            $this->storeAccessToken($authorization, $accessToken);
         } catch (IdentityProviderException $exception) {
             throw new OAuthClientException($exception->getMessage(), 1511187001671, $exception);
         }
@@ -495,6 +480,26 @@ abstract class OAuthClient
     public function shutdownObject(): void
     {
         $this->garbageCollector->collectWithProbability();
+    }
+
+    /**
+     * Stores the token with the given authorization, together with its expiration time and the scope which the server granted
+     */
+    private function storeAccessToken(Authorization $authorization, AccessTokenInterface $accessToken): void
+    {
+        $authorization->setAccessToken($accessToken);
+        if ($accessToken->getExpires() === null) {
+            $authorization->setExpires($this->defaultTokenLifetime !== null ? new \DateTimeImmutable('@' . (time() + $this->defaultTokenLifetime)) : null);
+        }
+
+        // The token response only contains the scope if the server granted a different one (RFC 6749, section 5.1)
+        $grantedScope = $accessToken->getValues()['scope'] ?? null;
+        if (is_string($grantedScope)) {
+            $authorization->setScope($grantedScope);
+        }
+
+        $this->entityManager->persist($authorization);
+        $this->entityManager->flush();
     }
 
     /**

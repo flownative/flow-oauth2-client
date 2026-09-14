@@ -25,6 +25,7 @@ use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Psr7\Uri;
 use InvalidArgumentException;
+use League\OAuth2\Client\Provider\Exception\IdentityProviderException;
 use Neos\Cache\Backend\TransientMemoryBackend;
 use Neos\Cache\Frontend\VariableFrontend;
 use Neos\Flow\Core\Bootstrap;
@@ -469,13 +470,15 @@ class OAuthClientTest extends TestCase
 
         $client->requestAccessToken('my-service-name', OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, 'read', ['audience' => 'https://api.example.com']);
 
-        $authorizationId = Authorization::generateAuthorizationIdForClientCredentialsGrant('my-service-name', OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, 'read', ['audience' => 'https://api.example.com']);
+        $authorizationId = Authorization::generateAuthorizationIdForClientCredentialsGrant('my-service-name', OAuthTestClient::TEST_CLIENT_ID, 'read', ['audience' => 'https://api.example.com']);
         self::assertSame(Authorization::GRANT_CLIENT_CREDENTIALS, $this->storedAuthorizations[$authorizationId]->getGrantType());
+        self::assertSame('read', $this->storedAuthorizations[$authorizationId]->getScope());
         self::assertSame('the-access-token', $this->storedAuthorizations[$authorizationId]->getAccessToken()->getToken());
 
         parse_str((string)$this->transactions[0]['request']->getBody(), $tokenRequestParameters);
         self::assertSame('client_credentials', $tokenRequestParameters['grant_type']);
         self::assertSame(OAuthTestClient::TEST_CLIENT_ID, $tokenRequestParameters['client_id']);
+        self::assertSame('read', $tokenRequestParameters['scope']);
         self::assertSame('https://api.example.com', $tokenRequestParameters['audience']);
     }
 
@@ -490,6 +493,79 @@ class OAuthClientTest extends TestCase
 
         self::assertCount(1, $this->storedAuthorizations);
         self::assertSame('the-second-access-token', reset($this->storedAuthorizations)->getAccessToken()->getToken());
+    }
+
+    #[Test]
+    public function requestAccessTokenSendsNoScopeIfScopeIsEmpty(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $this->oAuthServer->append(self::createTokenResponse('the-access-token'));
+
+        $client->requestAccessToken('my-service-name', OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, '', ['audience' => 'https://api.example.com']);
+
+        parse_str((string)$this->transactions[0]['request']->getBody(), $tokenRequestParameters);
+        self::assertArrayNotHasKey('scope', $tokenRequestParameters);
+    }
+
+    #[Test]
+    public function requestAccessTokenKeepsPreviousTokenIfNoNewTokenIsIssued(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $this->oAuthServer->append(self::createTokenResponse('the-first-access-token'), new Response(401, ['Content-Type' => 'application/json'], json_encode(['error' => 'invalid_client'])));
+        $client->requestAccessToken('my-service-name', OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, 'read');
+
+        try {
+            $client->requestAccessToken('my-service-name', OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, 'read');
+            self::fail('The refused token request did not throw an exception');
+        } catch (IdentityProviderException) {
+        }
+
+        self::assertCount(1, $this->storedAuthorizations);
+        self::assertSame('the-first-access-token', reset($this->storedAuthorizations)->getAccessToken()->getToken());
+    }
+
+    public static function reservedTokenRequestParameters(): array
+    {
+        $parameterNames = ['grant_type', 'client_id', 'client_secret', 'redirect_uri', 'scope', 'code', 'code_verifier', 'refresh_token'];
+        return array_combine($parameterNames, array_map(static fn (string $parameterName): array => [$parameterName], $parameterNames));
+    }
+
+    #[Test]
+    #[DataProvider('reservedTokenRequestParameters')]
+    public function requestAccessTokenRejectsReservedAdditionalParameters(string $parameterName): void
+    {
+        $client = $this->createClientForAuthorization();
+
+        try {
+            $client->requestAccessToken('my-service-name', OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, 'read', [$parameterName => 'value']);
+            self::fail('The reserved parameter was accepted');
+        } catch (InvalidArgumentException $exception) {
+            self::assertSame(1789391047, $exception->getCode());
+        }
+        self::assertSame([], $this->transactions);
+    }
+
+    #[Test]
+    public function requestAccessTokenAppliesDefaultLifetimeToTokenWithoutExpirationTime(): void
+    {
+        $client = $this->createClientForAuthorization();
+        (new ReflectionProperty($client, 'defaultTokenLifetime'))->setValue($client, 600);
+        $this->oAuthServer->append(new Response(200, ['Content-Type' => 'application/json'], json_encode(['access_token' => 'the-access-token', 'token_type' => 'Bearer'])));
+
+        $client->requestAccessToken('my-service-name', OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, 'read');
+
+        self::assertEqualsWithDelta(time() + 600, reset($this->storedAuthorizations)->getExpires()->getTimestamp(), 5);
+    }
+
+    #[Test]
+    public function requestAccessTokenStoresScopeGrantedByTheServer(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $this->oAuthServer->append(new Response(200, ['Content-Type' => 'application/json'], json_encode(['access_token' => 'the-access-token', 'token_type' => 'Bearer', 'expires_in' => 3600, 'scope' => 'read:limited'])));
+
+        $client->requestAccessToken('my-service-name', OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, 'read');
+
+        self::assertSame('read:limited', reset($this->storedAuthorizations)->getScope());
     }
 
     #[Test]

@@ -54,6 +54,7 @@ class Authorization
 
     /**
      * @var string
+     * @ORM\Column(type="text")
      */
     protected $scope;
 
@@ -118,16 +119,17 @@ class Authorization
     }
 
     /**
-     * Calculate an authorization identifier (for this model) from the given parameters.
+     * Calculate the authorization identifier of a client credentials grant from the given parameters.
+     *
+     * The client secret is not part of the identifier, so that the identifier, which appears in logs and in the command line, reveals nothing about it.
      */
-    public static function generateAuthorizationIdForClientCredentialsGrant(string $serviceName, string $clientId, string $clientSecret, string $scope, array $additionalParameters = []): string
+    public static function generateAuthorizationIdForClientCredentialsGrant(string $serviceName, string $clientId, string $scope, array $additionalParameters = []): string
     {
         try {
-            $additionalParametersJson = json_encode($additionalParameters, JSON_THROW_ON_ERROR);
-        } catch (\JsonException) {
-            $additionalParametersJson = '';
+            return hash('sha256', json_encode([self::GRANT_CLIENT_CREDENTIALS, $serviceName, $clientId, $scope, $additionalParameters], JSON_THROW_ON_ERROR));
+        } catch (\JsonException $exception) {
+            throw new \InvalidArgumentException('The additional parameters of the client credentials grant cannot be encoded as JSON', 1789391048, $exception);
         }
-        return hash('sha512', $serviceName . $clientId . $clientSecret . $scope . $additionalParametersJson . self::GRANT_CLIENT_CREDENTIALS);
     }
 
     public function getAuthorizationId(): string
@@ -191,10 +193,13 @@ class Authorization
         }
 
         try {
+            // The column of the other storage format is cleared, so that no unencrypted token stays behind once encryption is configured
             if ($this->encryptionService !== null && $this->encryptionService->isConfigured()) {
                 $this->encryptedSerializedAccessToken = $this->encryptionService->encryptAndEncode(json_encode($accessToken, JSON_THROW_ON_ERROR));
+                $this->serializedAccessToken = null;
             } else {
                 $this->serializedAccessToken = json_encode($accessToken, JSON_THROW_ON_ERROR);
+                $this->encryptedSerializedAccessToken = null;
             }
             // @codeCoverageIgnoreStart
         } catch (\JsonException | \Exception $e) {
