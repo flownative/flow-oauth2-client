@@ -8,6 +8,7 @@ use GuzzleHttp\Client as HttpClient;
 use GuzzleHttp\ClientInterface;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Psr7\Uri;
+use League\OAuth2\Client\Provider\AbstractProvider;
 use League\OAuth2\Client\Provider\Exception\IdentityProviderException;
 use League\OAuth2\Client\Provider\GenericProvider;
 use League\OAuth2\Client\Tool\RequestFactory;
@@ -51,6 +52,8 @@ abstract class OAuthClient
     private const array DEFINED_AUTHORIZATION_ERRORS = ['invalid_request', 'unauthorized_client', 'access_denied', 'unsupported_response_type', 'invalid_scope', 'server_error', 'temporarily_unavailable', 'interaction_required', 'login_required', 'account_selection_required', 'consent_required', 'invalid_request_uri', 'invalid_request_object', 'request_not_supported', 'request_uri_not_supported', 'registration_not_supported'];
 
     private const int STATE_LIFETIME = 3600; # seconds
+
+    private const int AUTHORIZATION_HANDLE_LIFETIME = 60; # seconds between the return from the OAuth server and claiming the authorization
 
     protected string $serviceName;
 
@@ -125,6 +128,11 @@ abstract class OAuthClient
      * which is known by the OAuth server
      */
     abstract public function getClientId(): string;
+
+    /**
+     * Returns the secret of the given client id, which is sent to the token endpoint when an authorization finishes
+     */
+    abstract public function getClientSecret(string $clientId): string;
 
     /**
      * Returns the OAuth service endpoint for the access token.
@@ -229,7 +237,8 @@ abstract class OAuthClient
     /**
      * Start OAuth authorization with the Authorization Code flow
      *
-     * This returns the URL the browser should redirect to, asking the user to authorize.
+     * This returns the URL the browser should redirect to, asking the user to authorize. The response which redirects the browser
+     * must also set the cookie of the given browser binding, otherwise the authorization can't be finished.
      *
      * The scope to request for authorization must be scope ids separated by space, e.g. "openid profile email"
      *
@@ -237,10 +246,10 @@ abstract class OAuthClient
      * @param string|null $metadata Stored with the authorization when it is finished, see Authorization::getMetadata()
      * @throws OAuthClientException
      */
-    public function startAuthorization(string $clientId, string $clientSecret, UriInterface $returnToUri, string $scope, array $authorizationParameters = [], ?string $metadata = null): UriInterface
+    public function startAuthorization(string $clientId, UriInterface $returnToUri, string $scope, BrowserBinding $browserBinding, array $authorizationParameters = [], ?string $metadata = null): UriInterface
     {
         $authorizationId = $this->generateAuthorizationIdForAuthorizationCodeGrant($clientId);
-        return $this->startAuthorizationWithId($authorizationId, $clientId, $clientSecret, $returnToUri, $scope, $authorizationParameters, $metadata);
+        return $this->startAuthorizationWithId($authorizationId, $clientId, $returnToUri, $scope, $browserBinding, $authorizationParameters, $metadata);
     }
 
     /**
@@ -264,17 +273,18 @@ abstract class OAuthClient
      * @param string|null $metadata Stored with the authorization when it is finished, see Authorization::getMetadata()
      * @throws OAuthClientException
      */
-    public function startAuthorizationWithId(string $authorizationId, string $clientId, string $clientSecret, UriInterface $returnToUri, string $scope, array $authorizationParameters = [], ?string $metadata = null): UriInterface
+    public function startAuthorizationWithId(string $authorizationId, string $clientId, UriInterface $returnToUri, string $scope, BrowserBinding $browserBinding, array $authorizationParameters = [], ?string $metadata = null): UriInterface
     {
         $reservedParameterNames = array_intersect(array_keys($authorizationParameters), self::RESERVED_AUTHORIZATION_PARAMETER_NAMES);
         if ($reservedParameterNames !== []) {
             throw new \InvalidArgumentException(sprintf('OAuth (%s): The authorization parameters must not contain "%s", because the client sets them itself.', static::getServiceType(), implode('", "', $reservedParameterNames)), 1789131855);
         }
 
-        $this->logger?->info(sprintf('OAuth (%s): Starting authorization %s using client id "%s", a %s bytes long secret and scope "%s".', static::getServiceType(), $authorizationId, $clientId, strlen($clientSecret), $scope));
+        $this->logger?->info(sprintf('OAuth (%s): Starting authorization for service "%s" using client id "%s" and scope "%s".', static::getServiceType(), $this->getServiceName(), $clientId, $scope), LogEnvironment::fromMethodName(__METHOD__));
 
         // The token request must repeat the redirect URI exactly (RFC 6749, section 4.1.3), even if the browser returns through another host name
         $redirectUri = $this->renderFinishAuthorizationUri();
+        $clientSecret = $this->getClientSecret($clientId);
         $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret, $redirectUri);
         $authorizationUri = new Uri($oAuthProvider->getAuthorizationUrl(array_merge($authorizationParameters, ['scope' => $scope])));
 
@@ -283,15 +293,18 @@ abstract class OAuthClient
         }
 
         try {
+            // The state contains no client secret, because cache entries end up in backups and in shared cache backends
             $this->stateCache->set(
                 $oAuthProvider->getState(),
                 [
                     'serviceType' => static::getServiceType(),
                     'serviceName' => $this->getServiceName(),
                     'tokenEndpoint' => $this->getAccessTokenUri(),
+                    'browserBindingCookieName' => $browserBinding->cookieName,
+                    'browserBindingSecretHash' => $browserBinding->getSecretHash(),
+                    'pkceCode' => $oAuthProvider->getPkceCode(),
                     'authorizationId' => $authorizationId,
                     'clientId' => $clientId,
-                    'clientSecret' => $clientSecret,
                     'returnToUri' => (string)$returnToUri,
                     'redirectUri' => $redirectUri,
                     'scope' => $scope,
@@ -310,28 +323,32 @@ abstract class OAuthClient
     /**
      * Finish an OAuth authorization with the Authorization Code flow
      *
-     * Returns the return URI of the authorization, with the authorization id as an additional query parameter.
+     * Returns the return URI of the authorization, with a handle of the authorization as an additional query parameter. The application
+     * gets the authorization with claimAuthorization(), in the same browser and within a minute.
      *
+     * @param array $cookies The cookies of the current request, which must contain the cookie of the browser binding
      * @throws UnknownStateException
      * @throws OAuthClientException
      */
-    public function finishAuthorization(string $stateIdentifier, string $code): UriInterface
+    public function finishAuthorization(string $stateIdentifier, string $code, array $cookies): UriInterface
     {
-        $stateFromCache = $this->takeState($stateIdentifier);
+        $stateFromCache = $this->takeState($stateIdentifier, $cookies);
 
         $authorizationId = $stateFromCache['authorizationId'];
         $clientId = $stateFromCache['clientId'];
-        $clientSecret = $stateFromCache['clientSecret'];
-        $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret, $stateFromCache['redirectUri']);
+        $oAuthProvider = $this->createOAuthProvider($clientId, $this->getClientSecret($clientId), $stateFromCache['redirectUri']);
+        if (is_string($stateFromCache['pkceCode'] ?? null)) {
+            $oAuthProvider->setPkceCode($stateFromCache['pkceCode']);
+        }
 
-        $this->logger?->info(sprintf('OAuth (%s): Finishing authorization for client "%s", authorization id "%s", using state %s.', static::getServiceType(), $clientId, $authorizationId, $stateIdentifier));
+        $this->logger?->info(sprintf('OAuth (%s): Finishing authorization for service "%s" using client id "%s".', static::getServiceType(), $this->getServiceName(), $clientId), LogEnvironment::fromMethodName(__METHOD__));
         try {
             // An authorization with the same id exists if startAuthorizationWithId() was called with the id of a finished authorization
             $authorization = $this->entityManager->find(Authorization::class, $authorizationId);
             if ($authorization === null) {
                 $authorization = new Authorization($authorizationId, static::getServiceType(), $clientId, Authorization::GRANT_AUTHORIZATION_CODE, $stateFromCache['scope']);
             } elseif ($authorization->getGrantType() !== Authorization::GRANT_AUTHORIZATION_CODE) {
-                throw new OAuthClientException(sprintf('OAuth2 (%s): Finishing authorization failed because authorization %s does not have the authorization code flow type!', static::getServiceType(), $authorizationId), 1597312780);
+                throw new OAuthClientException(sprintf('OAuth2 (%s): Finishing authorization failed because an existing authorization with the same id does not have the authorization code flow type.', static::getServiceType()), 1597312780);
             } else {
                 $authorization->setScope($stateFromCache['scope']);
             }
@@ -339,23 +356,73 @@ abstract class OAuthClient
                 $authorization->setMetadata($stateFromCache['metadata']);
             }
 
-            $this->logger?->debug(sprintf('OAuth (%s): Retrieving an OAuth access token for authorization "%s" in exchange for the code', static::getServiceType(), $authorizationId));
             try {
                 $accessToken = $oAuthProvider->getAccessToken(Authorization::GRANT_AUTHORIZATION_CODE, ['code' => $code]);
             } catch (GuzzleException|\UnexpectedValueException|\InvalidArgumentException $exception) {
-                throw new OAuthClientException(sprintf('OAuth (%s): The token request for authorization "%s" failed: %s', static::getServiceType(), $authorizationId, $exception->getMessage()), 1789386786, $exception);
+                throw new OAuthClientException(sprintf('OAuth (%s): The token request of service "%s" failed: %s', static::getServiceType(), $this->getServiceName(), $exception->getMessage()), 1789386786, $exception);
             }
-            $this->logger?->info(sprintf('OAuth (%s): Persisting OAuth token for authorization "%s" with expiry time %s.', static::getServiceType(), $authorizationId, $accessToken->getExpires()));
             $this->storeAccessToken($authorization, $accessToken);
         } catch (IdentityProviderException $exception) {
             throw new OAuthClientException($exception->getMessage(), 1511187001671, $exception);
         }
 
-        $returnToUri = new Uri($stateFromCache['returnToUri']);
-        $returnToUri = $returnToUri->withQuery(trim($returnToUri->getQuery() . '&' . self::generateAuthorizationIdQueryParameterName(static::getServiceType()) . '=' . $authorizationId, '&'));
+        // The authorization id is the key of the stored tokens, so it must not appear in URLs, which end up in logs and browser histories
+        $authorizationHandle = bin2hex(random_bytes(32));
+        try {
+            $this->stateCache->set(
+                self::getAuthorizationHandleCacheIdentifier($authorizationHandle),
+                [
+                    'serviceType' => static::getServiceType(),
+                    'serviceName' => $this->getServiceName(),
+                    'browserBindingCookieName' => $stateFromCache['browserBindingCookieName'],
+                    'browserBindingSecretHash' => $stateFromCache['browserBindingSecretHash'],
+                    'authorizationId' => $authorizationId,
+                ],
+                [],
+                self::AUTHORIZATION_HANDLE_LIFETIME
+            );
+        } catch (Exception $exception) {
+            throw new OAuthClientException(sprintf('OAuth (%s): Failed setting cache entry for authorization handle: %s', static::getServiceType(), $exception->getMessage()), 1789395652);
+        }
 
-        $this->logger?->debug(sprintf('OAuth (%s): Finished authorization "%s", $returnToUri is %s.', static::getServiceType(), $authorizationId, $returnToUri));
-        return $returnToUri;
+        $returnToUri = new Uri($stateFromCache['returnToUri']);
+        return $returnToUri->withQuery(trim($returnToUri->getQuery() . '&' . self::generateAuthorizationIdQueryParameterName(static::getServiceType()) . '=' . $authorizationHandle, '&'));
+    }
+
+    /**
+     * Returns the authorization of a handle from the return URI of finishAuthorization(), which can't be used again afterwards
+     *
+     * The handle is only accepted within a minute, by the client of the same service, and together with the cookie of the browser
+     * binding which started the authorization. Afterwards, the application should remove that cookie, see BrowserBinding::createRemovalCookie().
+     *
+     * @param array $cookies The cookies of the current request
+     * @throws UnknownAuthorizationHandleException
+     */
+    public function claimAuthorization(string $authorizationHandle, array $cookies): Authorization
+    {
+        if (preg_match('/^[0-9a-f]{64}$/', $authorizationHandle) !== 1) {
+            throw new UnknownAuthorizationHandleException(sprintf('OAuth (%s): The authorization handle is malformed.', static::getServiceType()), 1789395646);
+        }
+        $cacheIdentifier = self::getAuthorizationHandleCacheIdentifier($authorizationHandle);
+        $handleEntry = $this->stateCache->get($cacheIdentifier);
+        if (!is_array($handleEntry)) {
+            throw new UnknownAuthorizationHandleException(sprintf('OAuth (%s): The authorization handle is unknown, expired or was already claimed.', static::getServiceType()), 1789395647);
+        }
+
+        // The handle is not removed, so that a request from another browser can't take it away from the browser which started the authorization
+        if (($handleEntry['serviceType'] ?? null) !== static::getServiceType() || ($handleEntry['serviceName'] ?? null) !== $this->getServiceName()) {
+            throw new UnknownAuthorizationHandleException(sprintf('OAuth (%s): The authorization handle belongs to another service than "%s".', static::getServiceType(), $this->getServiceName()), 1789395648);
+        }
+        if (!BrowserBinding::isPresentInCookies($handleEntry['browserBindingCookieName'] ?? '', $handleEntry['browserBindingSecretHash'] ?? '', $cookies)) {
+            throw new UnknownAuthorizationHandleException(sprintf('OAuth (%s): The authorization was not started in this browser.', static::getServiceType()), 1789395649);
+        }
+        $this->stateCache->remove($cacheIdentifier);
+
+        $authorization = $this->getAuthorization($handleEntry['authorizationId']);
+        if ($authorization === null) {
+            throw new UnknownAuthorizationHandleException(sprintf('OAuth (%s): The authorization of the handle no longer exists.', static::getServiceType()), 1789395650);
+        }
+        return $authorization;
     }
 
     /**
@@ -364,11 +431,12 @@ abstract class OAuthClient
      * Returns the return URI of the authorization, with the error code as an additional query parameter. Applications
      * may display the error code, so codes which RFC 6749 and OpenID Connect don't define are replaced by "server_error".
      *
+     * @param array $cookies The cookies of the current request, which must contain the cookie of the browser binding
      * @throws UnknownStateException
      */
-    public function finishAuthorizationWithError(string $stateIdentifier, string $error): UriInterface
+    public function finishAuthorizationWithError(string $stateIdentifier, string $error, array $cookies): UriInterface
     {
-        $stateFromCache = $this->takeState($stateIdentifier);
+        $stateFromCache = $this->takeState($stateIdentifier, $cookies);
         $definedError = in_array($error, self::DEFINED_AUTHORIZATION_ERRORS, true) ? $error : 'server_error';
         $this->logger?->notice(sprintf('OAuth (%s): The OAuth server refused the authorization with the error "%s".', static::getServiceType(), $definedError), LogEnvironment::fromMethodName(__METHOD__));
 
@@ -394,7 +462,7 @@ abstract class OAuthClient
         if ($existingAuthorization !== null) {
             $this->entityManager->remove($existingAuthorization);
             $this->entityManager->flush();
-            $this->logger?->debug(sprintf('OAuth (%s): Removed authorization id %s', static::getServiceType(), $authorizationId), LogEnvironment::fromMethodName(__METHOD__));
+            $this->logger?->debug(sprintf('OAuth (%s): Removed an authorization of service "%s"', static::getServiceType(), $this->getServiceName()), LogEnvironment::fromMethodName(__METHOD__));
         }
     }
 
@@ -457,10 +525,21 @@ abstract class OAuthClient
             'urlAuthorize' => $this->getAuthorizeTokenUri(),
             'urlAccessToken' => $this->getAccessTokenUri(),
             'urlResourceOwnerDetails' => $this->getResourceOwnerUri(),
+            'pkceMethod' => $this->getPkceMethod(),
         ], [
             'requestFactory' => $this->getRequestFactory(),
             'httpClient' => $this->createHttpClient(),
         ]);
+    }
+
+    /**
+     * Returns the PKCE method (RFC 7636) for the authorization code flow
+     *
+     * Override this method and return null only for OAuth servers which reject the PKCE parameters.
+     */
+    protected function getPkceMethod(): ?string
+    {
+        return AbstractProvider::PKCE_METHOD_S256;
     }
 
     /**
@@ -507,12 +586,12 @@ abstract class OAuthClient
     /**
      * Returns the data which was stored for the given state and removes it, so that each state is accepted only once
      *
-     * Only the client of the service which started the authorization accepts the state. The state contains the credentials
-     * of that service, which must never be sent to the token endpoint of another service.
+     * Only the client of the service which started the authorization accepts the state, and only from the browser which started it.
+     * The state refers to the credentials of that service, which must never be sent to the token endpoint of another service.
      *
      * @throws UnknownStateException
      */
-    private function takeState(string $stateIdentifier): array
+    private function takeState(string $stateIdentifier, array $cookies): array
     {
         // The cache rejects other identifiers with an exception
         if (preg_match('/^[a-zA-Z0-9_-]{1,250}$/', $stateIdentifier) !== 1) {
@@ -530,8 +609,20 @@ abstract class OAuthClient
         if (($stateFromCache['tokenEndpoint'] ?? null) !== $this->getAccessTokenUri()) {
             throw new UnknownStateException(sprintf('OAuth (%s): The token endpoint of service "%s" has changed since the authorization was started.', static::getServiceType(), $this->getServiceName()), 1789391699);
         }
+        // An attacker could otherwise make the browser of a victim finish an authorization which the attacker started
+        if (!BrowserBinding::isPresentInCookies($stateFromCache['browserBindingCookieName'] ?? '', $stateFromCache['browserBindingSecretHash'] ?? '', $cookies)) {
+            throw new UnknownStateException(sprintf('OAuth (%s): The returning authorization was not started in this browser.', static::getServiceType()), 1789395645);
+        }
 
         $this->stateCache->remove($stateIdentifier);
         return $stateFromCache;
+    }
+
+    /**
+     * Only the hash of the handle is stored, so that the cache backend doesn't contain usable handles
+     */
+    private static function getAuthorizationHandleCacheIdentifier(string $authorizationHandle): string
+    {
+        return 'authorization_handle_' . hash('sha256', $authorizationHandle);
     }
 }

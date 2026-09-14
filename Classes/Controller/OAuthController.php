@@ -6,7 +6,6 @@ namespace Flownative\OAuth2\Client\Controller;
 use Flownative\OAuth2\Client\OAuthClient;
 use Flownative\OAuth2\Client\OAuthClientException;
 use Flownative\OAuth2\Client\UnknownStateException;
-use GuzzleHttp\Psr7\Uri;
 use Neos\Flow\Annotations as Flow;
 use Neos\Flow\Mvc\Controller\ActionController;
 use Neos\Flow\Mvc\Exception\StopActionException;
@@ -27,36 +26,12 @@ final class OAuthController extends ActionController
     }
 
     /**
-     * Start OAuth2 authorization
-     *
-     * @param string $clientId
-     * @param string $clientSecret
-     * @param Uri $returnToUri
-     * @param string $serviceType
-     * @param string $serviceName
-     * @param string $scope
-     * @throws OAuthClientException
-     * @throws StopActionException
-     * @throws UnsupportedRequestTypeException
-     */
-    public function startAuthorizationAction(string $clientId, string $clientSecret, Uri $returnToUri, string $serviceType, string $serviceName, string $scope): void
-    {
-        if (!isset($this->serviceTypes[$serviceType])) {
-            throw new OAuthClientException(sprintf('Failed starting OAuth2 authorization, because the given service type "%s" is unknown.', $serviceType), 1511187873921);
-        }
-
-        $client = new $this->serviceTypes[$serviceType]($serviceName);
-        assert($client instanceof OAuthClient);
-        $authorizeUri = $client->startAuthorization($clientId, $clientSecret, $returnToUri, $scope);
-        $this->redirectToUri($authorizeUri);
-    }
-
-    /**
      * Finish OAuth2 authorization
      *
      * The OAuth server redirects the browser to this action, either with a code or with an error. In both cases, the
      * action redirects to the return URI which was specified while starting the authorization. A malformed, unknown
-     * or already used state results in status 400, because it usually comes from a reloaded or bookmarked page.
+     * or already used state results in status 400, because it usually comes from a reloaded or bookmarked page. The
+     * same applies to a state which was started in another browser.
      *
      * @param string $serviceType The OAuth service type, ie. the type identifying the package / class implementing OAuth
      * @param string $serviceName The OAuth service name, ie. the identifier of the concrete configuration of the given OAuth service implementation
@@ -80,10 +55,11 @@ final class OAuthController extends ActionController
             $this->throwStatus(400, null, 'The OAuth server sent neither a code nor an error.');
         }
 
+        $cookies = $this->request->getHttpRequest()->getCookieParams();
         try {
-            $returnToUri = $error !== '' ? $client->finishAuthorizationWithError($state, $error) : $client->finishAuthorization($state, $code);
+            $returnToUri = $error !== '' ? $client->finishAuthorizationWithError($state, $error, $cookies) : $client->finishAuthorization($state, $code, $cookies);
         } catch (UnknownStateException) {
-            $this->throwStatus(400, null, 'The authorization is unknown or has expired. Please start again.');
+            $this->throwStatus(400, null, 'The authorization is unknown, has expired or was started in another browser. Please start again.');
         }
         $this->redirectToUri($returnToUri);
     }

@@ -9,9 +9,6 @@ privilegeTargets:
     'Flownative.OAuth2.Client:OAuth':
       matcher: 'method(Flownative\OAuth2\Client\Controller\OAuthController->finishAuthorizationAction())'
 
-    'Flownative.OAuth2.Client:OAuth.Admin':
-      matcher: 'method(Flownative\OAuth2\Client\Controller\OAuthController->startAuthorizationAction())'
-
 #
 # ROLES
 #
@@ -22,9 +19,3 @@ roles:
       -
         privilegeTarget: 'Flownative.OAuth2.Client:OAuth'
         permission: GRANT
-
-#  'Acme.Your.Application':
-#    privileges:
-#      -
-#        privilegeTarget: 'Flownative.OAuth2.Client:OAuth.Admin'
-#        permission: GRANT

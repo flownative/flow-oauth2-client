@@ -21,6 +21,7 @@ class OAuthTestClient extends OAuthClient
     public const TEST_SERVICE_TYPE = 'TestServiceType';
     public const TEST_BASE_URI = 'https://localbeach.net/';
     public const TEST_CLIENT_ID = 'my-client-id';
+    public const TEST_CLIENT_SECRET = 'the-secret-of-my-client';
 
     private ?ClientInterface $httpClient = null;
 
@@ -49,6 +50,11 @@ class OAuthTestClient extends OAuthClient
     public function getClientId(): string
     {
         return self::TEST_CLIENT_ID;
+    }
+
+    public function getClientSecret(string $clientId): string
+    {
+        return self::TEST_CLIENT_SECRET;
     }
 
     public function renderFinishAuthorizationUri(): string

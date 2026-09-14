@@ -80,25 +80,32 @@ authorization finishes to make sure that the authorization is only used
 for a specific account (or customer number, or participant id).
 
 Pass the metadata when you start the authorization code flow. It is
-stored together with the authorization when the flow finishes:
+stored together with the authorization when the flow finishes. The
+browser binding ties the authorization to the browser which starts it,
+so the response which redirects the browser must set its cookie. The
+client class provides the client secret in `getClientSecret()`.
 
 ```php
+$browserBinding = BrowserBinding::generate();
 $loginUri = $oAuthClient->startAuthorization(
     $this->appId,
-    $this->appSecret,
     $returnToUri,
     $scope,
+    $browserBinding,
     [],
     json_encode($metadata)
 );
+$this->response->setCookie($browserBinding->createCookie());
+$this->redirectToUri($loginUri);
 ```
 
-When the authorization is finished, the return URI contains the
-authorization id, and you may retrieve the metadata as follows:
+When the authorization is finished, the return URI contains a handle of
+the authorization. The handle can only be used once, within a minute
+and by the same browser. You may retrieve the metadata as follows:
 
 ```php
-$authorizationId = $request->getQueryParams()[OAuthClient::generateAuthorizationIdQueryParameterName($serviceType)];
-$authorization = $oAuthClient->getAuthorization($authorizationId);
+$authorizationHandle = $request->getQueryParams()[OAuthClient::generateAuthorizationIdQueryParameterName($serviceType)];
+$authorization = $oAuthClient->claimAuthorization($authorizationHandle, $request->getCookieParams());
 $metadata = json_decode($authorization->getMetadata());
 ```
 

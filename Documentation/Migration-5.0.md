@@ -1,10 +1,12 @@
 # Migrating from 4.x to 5.0
 
 Version 5.0 modernizes the package and changes how authorizations are
-stored, expire and are requested. Most applications only need to check
-the requirements and the scopes of their client credentials requests.
-Applications which extend `OAuthClient` or call its methods directly
-should read the whole guide.
+stored, expire and are requested. Applications which use this package
+only through flownative/openidconnect-client, or only for client
+credentials, mostly need to check the requirements and the scopes of
+their client credentials requests. Applications which start
+authorization code flows themselves, or which extend `OAuthClient`,
+must adapt their code and should read the whole guide.
 
 - [Requirements](#requirements)
 - [Database Migration](#database-migration)
@@ -104,6 +106,75 @@ find them with `./flow oauth:listauthorizations` and remove them with
 
 ## Authorization Code Flow
 
+### Binding to the Browser
+
+The client now binds each authorization to the browser which starts it.
+`startAuthorization()` and `startAuthorizationWithId()` take a
+`BrowserBinding`, and the response which redirects the browser must set
+its cookie:
+
+```php
+$browserBinding = BrowserBinding::generate();
+$authorizationUri = $oAuthClient->startAuthorization($clientId, $returnToUri, $scope, $browserBinding);
+$this->response->setCookie($browserBinding->createCookie());
+$this->redirectToUri($authorizationUri);
+```
+
+The callback only exchanges the code if the browser sends this cookie.
+Without it, the callback answers with status 400. If your application
+already keeps a random secret for the login in a cookie, create the
+binding with `BrowserBinding::fromExistingCookie()` instead.
+flownative/openidconnect-client 6.0 does this with its nonce cookie.
+
+For development without HTTPS, use `BrowserBinding::generate(false)`,
+because the cookie name can't have the `__Host-` prefix then.
+
+### Authorization Handle Instead of Authorization Id
+
+The return URI no longer contains the authorization id. The query
+parameter with the same name now contains a handle, which can only be
+used once, within a minute and by the browser which started the
+authorization:
+
+```php
+$authorization = $oAuthClient->claimAuthorization($authorizationHandle, $request->getCookieParams());
+```
+
+Code which read the authorization id from the query and called
+`getAuthorization()` must call `claimAuthorization()` instead. Remove
+the cookie of the browser binding afterwards, see
+`BrowserBinding::createRemovalCookie()`. `getAuthorization()` remains
+for ids which your application knows itself, for example of client
+credentials.
+
+### Client Secret
+
+`startAuthorization()` and `startAuthorizationWithId()` no longer take
+the client secret. Every client class must implement
+`getClientSecret(string $clientId): string`. The client asks for the
+secret when the flow starts and when it finishes, and no longer keeps it
+in the state cache.
+
+### PKCE
+
+The client uses PKCE with S256 ([RFC 7636](https://www.rfc-editor.org/rfc/rfc7636))
+for every authorization code flow. Authorization servers which don't
+support PKCE usually ignore the additional parameters. For servers
+which reject them, override `getPkceMethod()` in your client class and
+return `null`.
+
+### Removed Start Action
+
+The action `OAuthController::startAuthorizationAction()` and the
+privilege target `Flownative.OAuth2.Client:OAuth.Admin` were removed.
+The action took the client secret from the URL. Start authorizations
+from your own code instead, as shown above.
+
+### Log Messages
+
+Log messages no longer contain authorization ids, states or return
+URIs.
+
 ### Authorizations Are Stored When the Flow Finishes
 
 Starting a flow no longer writes to the database. The data of a flow in
@@ -115,7 +186,7 @@ Metadata therefore can no longer be attached with
 `startAuthorization()` or `startAuthorizationWithId()` instead:
 
 ```php
-$authorizationUri = $oAuthClient->startAuthorization($clientId, $clientSecret, $returnToUri, $scope, [], json_encode($metadata));
+$authorizationUri = $oAuthClient->startAuthorization($clientId, $returnToUri, $scope, $browserBinding, [], json_encode($metadata));
 ```
 
 `setAuthorizationMetadata()` still changes the metadata of a finished
@@ -132,9 +203,9 @@ Codes which RFC 6749 and OpenID Connect don't define arrive as
 
 ### Unknown States
 
-A malformed, unknown, expired or already used state now results in
-status 400 instead of 500. This happens, for example, when a user
-reloads the page of a finished login.
+A malformed, unknown, expired or already used state, and a state which
+another browser started, now result in status 400 instead of 500. This
+happens, for example, when a user reloads the page of a finished login.
 
 ### Redirect URI
 
@@ -174,14 +245,24 @@ scope argument.
 - `OAuthClient::removeExpiredAuthorizations()` and the property
   `garbageCollectionProbability` were removed. The new
   `GarbageCollector` replaces them.
-- `finishAuthorization(string $stateIdentifier, string $code)` lost its
-  scope argument. `finishAuthorizationWithError()` handles refused
-  authorizations. Both throw an `UnknownStateException` for unknown
-  states.
+- `startAuthorization($clientId, $returnToUri, $scope, $browserBinding,
+  $authorizationParameters, $metadata)` and `startAuthorizationWithId()`
+  no longer take the client secret, require a `BrowserBinding` and have
+  an additional optional argument for metadata.
+- `finishAuthorization($stateIdentifier, $code, $cookies)` lost its
+  scope argument and takes the cookies of the request, like the new
+  `finishAuthorizationWithError($stateIdentifier, $error, $cookies)`.
+  Both throw an `UnknownStateException` for unknown states and for
+  states which another browser started.
+- `claimAuthorization($authorizationHandle, $cookies)` returns a
+  finished authorization, or throws an
+  `UnknownAuthorizationHandleException`.
+- `getClientSecret(string $clientId)` is a new abstract method. Override
+  `getPkceMethod()` to disable PKCE.
 - `createOAuthProvider()` has an additional optional argument for the
   redirect URI.
 - `renderFinishAuthorizationUri()` may throw an `OAuthClientException`.
-- `startAuthorization()` and `startAuthorizationWithId()` have an
-  additional optional argument for metadata.
 - `Authorization::generateAuthorizationIdForClientCredentialsGrant()` no
   longer takes the client secret.
+- `OAuthController::startAuthorizationAction()` and the privilege target
+  `Flownative.OAuth2.Client:OAuth.Admin` were removed.
