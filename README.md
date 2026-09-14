@@ -11,6 +11,9 @@ developed as a backing library for the
 That's why documentation for this package is a bit sparse at the moment
 and examples for generic use are missing.
 
+When upgrading from version 4, read the
+[migration guide](Documentation/Migration-5.0.md).
+
 ## Authorizations
 
 This package stores tokens as "authorizations" in a dedicated database
