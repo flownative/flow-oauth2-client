@@ -235,13 +235,13 @@ abstract class OAuthClient
      * The scope to request for authorization must be scope ids separated by space, e.g. "openid profile email"
      *
      * @param array $authorizationParameters Additional query parameters for the authorization endpoint, for example ['prompt' => 'login']
+     * @param string|null $metadata Stored with the authorization when it is finished, see Authorization::getMetadata()
      * @throws OAuthClientException
-     * @throws \DateMalformedStringException
      */
-    public function startAuthorization(string $clientId, string $clientSecret, UriInterface $returnToUri, string $scope, array $authorizationParameters = []): UriInterface
+    public function startAuthorization(string $clientId, string $clientSecret, UriInterface $returnToUri, string $scope, array $authorizationParameters = [], ?string $metadata = null): UriInterface
     {
         $authorizationId = $this->generateAuthorizationIdForAuthorizationCodeGrant($clientId);
-        return $this->startAuthorizationWithId($authorizationId, $clientId, $clientSecret, $returnToUri, $scope, $authorizationParameters);
+        return $this->startAuthorizationWithId($authorizationId, $clientId, $clientSecret, $returnToUri, $scope, $authorizationParameters, $metadata);
     }
 
     /**
@@ -259,32 +259,20 @@ abstract class OAuthClient
      *
      * The scope to request for authorization must be scope ids separated by space, e.g. "openid profile email"
      *
+     * The authorization is stored only when it is finished. Until then, its data is kept in the state cache.
+     *
      * @param array $authorizationParameters Additional query parameters for the authorization endpoint, for example ['prompt' => 'login']
+     * @param string|null $metadata Stored with the authorization when it is finished, see Authorization::getMetadata()
      * @throws OAuthClientException
-     * @throws \DateMalformedStringException
      */
-    public function startAuthorizationWithId(string $authorizationId, string $clientId, string $clientSecret, UriInterface $returnToUri, string $scope, array $authorizationParameters = []): UriInterface
+    public function startAuthorizationWithId(string $authorizationId, string $clientId, string $clientSecret, UriInterface $returnToUri, string $scope, array $authorizationParameters = [], ?string $metadata = null): UriInterface
     {
         $reservedParameterNames = array_intersect(array_keys($authorizationParameters), self::RESERVED_AUTHORIZATION_PARAMETER_NAMES);
         if ($reservedParameterNames !== []) {
             throw new \InvalidArgumentException(sprintf('OAuth (%s): The authorization parameters must not contain "%s", because the client sets them itself.', static::getServiceType(), implode('", "', $reservedParameterNames)), 1789131855);
         }
 
-        $authorization = new Authorization($authorizationId, static::getServiceType(), $clientId, Authorization::GRANT_AUTHORIZATION_CODE, $scope);
-        $authorization->setExpires(new \DateTimeImmutable('@' . (time() + self::STATE_LIFETIME)));
-
-        $this->logger?->info(sprintf('OAuth (%s): Starting authorization %s using client id "%s", a %s bytes long secret and scope "%s".', static::getServiceType(), $authorization->getAuthorizationId(), $clientId, strlen($clientSecret), $scope));
-
-        try {
-            $oldAuthorization = $this->entityManager->find(Authorization::class, $authorization->getAuthorizationId());
-            if ($oldAuthorization !== null) {
-                $authorization = $oldAuthorization;
-            }
-            $this->entityManager->persist($authorization);
-            $this->entityManager->flush();
-        } catch (\Exception $exception) {
-            throw new OAuthClientException(sprintf('OAuth (%s): Failed storing authorization in database: %s', static::getServiceType(), $exception->getMessage()), 1568727133);
-        }
+        $this->logger?->info(sprintf('OAuth (%s): Starting authorization %s using client id "%s", a %s bytes long secret and scope "%s".', static::getServiceType(), $authorizationId, $clientId, strlen($clientSecret), $scope));
 
         // The token request must repeat the redirect URI exactly (RFC 6749, section 4.1.3), even if the browser returns through another host name
         $redirectUri = $this->renderFinishAuthorizationUri();
@@ -299,11 +287,13 @@ abstract class OAuthClient
             $this->stateCache->set(
                 $oAuthProvider->getState(),
                 [
-                    'authorizationId' => $authorization->getAuthorizationId(),
+                    'authorizationId' => $authorizationId,
                     'clientId' => $clientId,
                     'clientSecret' => $clientSecret,
                     'returnToUri' => (string)$returnToUri,
                     'redirectUri' => $redirectUri,
+                    'scope' => $scope,
+                    'metadata' => $metadata,
                 ],
                 [],
                 self::STATE_LIFETIME
@@ -330,18 +320,22 @@ abstract class OAuthClient
         $authorizationId = $stateFromCache['authorizationId'];
         $clientId = $stateFromCache['clientId'];
         $clientSecret = $stateFromCache['clientSecret'];
-        // TODO: Remove the fallback in 6.0, it only serves states which were stored by 4.x
+        // TODO: Remove the fallbacks for the redirect URI and the scope in 6.0, they only serve states which were stored by 4.x
         $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret, $stateFromCache['redirectUri'] ?? $this->renderFinishAuthorizationUri());
 
         $this->logger?->info(sprintf('OAuth (%s): Finishing authorization for client "%s", authorization id "%s", using state %s.', static::getServiceType(), $clientId, $authorizationId, $stateIdentifier));
         try {
+            // An authorization with the same id exists if startAuthorizationWithId() was called with the id of a finished authorization
             $authorization = $this->entityManager->find(Authorization::class, $authorizationId);
-            if (!$authorization instanceof Authorization) {
-                throw new OAuthClientException(sprintf('OAuth2 (%s): Finishing authorization failed because authorization %s could not be retrieved from the database.', static::getServiceType(), $authorizationId), 1568710771);
-            }
-
-            if ($authorization->getGrantType() !== Authorization::GRANT_AUTHORIZATION_CODE) {
+            if ($authorization === null) {
+                $authorization = new Authorization($authorizationId, static::getServiceType(), $clientId, Authorization::GRANT_AUTHORIZATION_CODE, $stateFromCache['scope'] ?? '');
+            } elseif ($authorization->getGrantType() !== Authorization::GRANT_AUTHORIZATION_CODE) {
                 throw new OAuthClientException(sprintf('OAuth2 (%s): Finishing authorization failed because authorization %s does not have the authorization code flow type!', static::getServiceType(), $authorizationId), 1597312780);
+            } elseif (isset($stateFromCache['scope'])) {
+                $authorization->setScope($stateFromCache['scope']);
+            }
+            if (is_string($stateFromCache['metadata'] ?? null)) {
+                $authorization->setMetadata($stateFromCache['metadata']);
             }
 
             $this->logger?->debug(sprintf('OAuth (%s): Retrieving an OAuth access token for authorization "%s" in exchange for the code', static::getServiceType(), $authorizationId));

@@ -32,7 +32,9 @@ authorizations are removed by the garbage collection.
 
 Tokens from the authorization code flow which don't specify an
 expiration time get a default lifetime of 600 seconds (10 minutes). An
-authorization code flow which has not finished expires after one hour.
+authorization code flow is stored as an authorization only when it
+finishes. Until then, it is kept in the state cache, where it expires
+after one hour.
 Tokens from the client credentials flow without an expiration time
 don't expire. They are replaced when a new token is requested.
 
@@ -77,29 +79,31 @@ an authorization process starts and use that information when
 authorization finishes to make sure that the authorization is only used
 for a specific account (or customer number, or participant id).
 
-To set metadata, you need to know the authorization id when starting the
-authorization code flow. This code could be used in an overloaded
-`startAuthorizationAction()`:
+Pass the metadata when you start the authorization code flow. It is
+stored together with the authorization when the flow finishes:
 
 ```php
-$authorizationId = $oAuthClient->generateAuthorizationIdForAuthorizationCodeGrant($this->appId);
-$loginUri = $oAuthClient->startAuthorizationWithId(
-    $authorizationId,
+$loginUri = $oAuthClient->startAuthorization(
     $this->appId,
     $this->appSecret,
     $returnToUri,
-    $scope
+    $scope,
+    [],
+    json_encode($metadata)
 );
-$oAuthClient->setAuthorizationMetadata($authorizationId, json_encode($metadata));
 ```
 
-And later, when the authorization is finished, you may retrieve the
-metadata as follows:
+When the authorization is finished, the return URI contains the
+authorization id, and you may retrieve the metadata as follows:
 
 ```php
+$authorizationId = $request->getQueryParams()[OAuthClient::generateAuthorizationIdQueryParameterName($serviceType)];
 $authorization = $oAuthClient->getAuthorization($authorizationId);
 $metadata = json_decode($authorization->getMetadata());
 ```
+
+To change the metadata of a finished authorization, use
+`setAuthorizationMetadata()`.
 
 ### Refused authorizations
 

@@ -99,7 +99,7 @@ class OAuthClientTest extends TestCase
     }
 
     #[Test]
-    public function startAuthorizationStoresAuthorizationAndReturnsUriOfAuthorizationEndpoint(): void
+    public function startAuthorizationReturnsUriOfAuthorizationEndpointWithoutStoringAnAuthorization(): void
     {
         $client = $this->createClientForAuthorization();
 
@@ -113,11 +113,7 @@ class OAuthClientTest extends TestCase
         self::assertSame('openid profile', $queryParameters['scope']);
         self::assertNotEmpty($queryParameters['state']);
 
-        self::assertCount(1, $this->storedAuthorizations);
-        $authorization = reset($this->storedAuthorizations);
-        self::assertSame(Authorization::GRANT_AUTHORIZATION_CODE, $authorization->getGrantType());
-        self::assertSame('openid profile', $authorization->getScope());
-        self::assertNull($authorization->getAccessToken());
+        self::assertSame([], $this->storedAuthorizations);
     }
 
     #[Test]
@@ -215,13 +211,51 @@ class OAuthClientTest extends TestCase
     }
 
     #[Test]
-    public function startAuthorizationStoresAuthorizationWhichExpiresTogetherWithTheState(): void
+    public function finishAuthorizationStoresAuthorizationWithScopeAndMetadataGivenAtStart(): void
     {
         $client = $this->createClientForAuthorization();
+        $state = self::getState($client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid profile', [], '{"customer":"42"}'));
+        $this->oAuthServer->append(self::createTokenResponse('the-access-token'));
 
-        $client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid');
+        $client->finishAuthorization($state, 'the-code');
 
-        self::assertEqualsWithDelta(time() + 3600, reset($this->storedAuthorizations)->getExpires()->getTimestamp(), 5);
+        self::assertCount(1, $this->storedAuthorizations);
+        $authorization = reset($this->storedAuthorizations);
+        self::assertSame(Authorization::GRANT_AUTHORIZATION_CODE, $authorization->getGrantType());
+        self::assertSame(OAuthTestClient::TEST_CLIENT_ID, $authorization->getClientId());
+        self::assertSame('openid profile', $authorization->getScope());
+        self::assertSame('{"customer":"42"}', $authorization->getMetadata());
+    }
+
+    #[Test]
+    public function finishAuthorizationUpdatesExistingAuthorizationWithTheSameId(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $existingAuthorization = new Authorization('fixed-authorization-id', OAuthTestClient::TEST_SERVICE_TYPE, OAuthTestClient::TEST_CLIENT_ID, Authorization::GRANT_AUTHORIZATION_CODE, 'openid');
+        $existingAuthorization->setMetadata('{"customer":"42"}');
+        $this->storedAuthorizations['fixed-authorization-id'] = $existingAuthorization;
+        $state = self::getState($client->startAuthorizationWithId('fixed-authorization-id', OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid profile'));
+        $this->oAuthServer->append(self::createTokenResponse('the-new-access-token'));
+
+        $client->finishAuthorization($state, 'the-code');
+
+        self::assertSame(['fixed-authorization-id' => $existingAuthorization], $this->storedAuthorizations);
+        self::assertSame('the-new-access-token', $existingAuthorization->getAccessToken()->getToken());
+        self::assertSame('openid profile', $existingAuthorization->getScope());
+        self::assertSame('{"customer":"42"}', $existingAuthorization->getMetadata());
+    }
+
+    #[Test]
+    public function finishAuthorizationRejectsExistingAuthorizationOfAnotherGrantType(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $this->storedAuthorizations['fixed-authorization-id'] = new Authorization('fixed-authorization-id', 'my-service-name', OAuthTestClient::TEST_CLIENT_ID, Authorization::GRANT_CLIENT_CREDENTIALS, 'read');
+        $state = self::getState($client->startAuthorizationWithId('fixed-authorization-id', OAuthTestClient::TEST_CLIENT_ID, self::CLIENT_SECRET, new Uri(self::RETURN_URI), 'openid'));
+        $this->oAuthServer->append(self::createTokenResponse('the-access-token'));
+
+        $this->expectException(OAuthClientException::class);
+        $this->expectExceptionCode(1597312780);
+        $client->finishAuthorization($state, 'the-code');
     }
 
     #[Test]
@@ -360,6 +394,7 @@ class OAuthClientTest extends TestCase
         self::assertSame('access_denied', $returnUriParameters[OAuthClient::generateAuthorizationErrorQueryParameterName(OAuthTestClient::TEST_SERVICE_TYPE)]);
         self::assertArrayNotHasKey(OAuthClient::generateAuthorizationIdQueryParameterName(OAuthTestClient::TEST_SERVICE_TYPE), $returnUriParameters);
         self::assertSame([], $this->transactions);
+        self::assertSame([], $this->storedAuthorizations);
     }
 
     #[Test]
