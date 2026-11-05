@@ -128,6 +128,132 @@ The error codes are the ones defined by
 [OpenID Connect](https://openid.net/specs/openid-connect-core-1_0.html#AuthError),
 for example `access_denied`. Any other code arrives as `server_error`.
 
+## Returns through a relay
+
+Some OAuth servers accept only redirect URIs which are registered
+exactly. An application which serves many host names, for example one
+per customer, can then let all returns arrive at a single relay host.
+The relay forwards each return, with its `code` and `state`, to the
+host which started the authorization. That host finishes the
+authorization as usual: it checks the cookie of the browser binding,
+sends the PKCE verifier and repeats the redirect URI of the relay in
+the token request.
+
+Both options are off by default. A client enables them by overriding
+two methods:
+
+```php
+protected function getRedirectUri(): ?string
+{
+    return 'https://login.example.com/oauth2/oidc/my-service/finishauthorization';
+}
+
+protected function getStateSigner(): ?StateSigner
+{
+    return StateSigner::fromBase64EncodedSecretKey('cell-1', $this->base64EncodedStateSigningKey, ['*.cell-1.example.com']);
+}
+```
+
+`getRedirectUri()` replaces the URI of the finish authorization action
+in the authorization request and in the token request. With
+`getStateSigner()`, the state names the host of the current request,
+signed with Ed25519, so that the relay knows where to forward the
+return. The state is then up to 1,024 characters long, instead of 32.
+The signature covers the state behind the prefix
+`flownative-oauth2-state.`, so that it is never valid for another
+protocol. A client whose redirect URI points to another host, but which
+has no state signer, logs a warning when it starts an authorization:
+the relay can't forward such a return and answers with an error.
+
+Both are new protected methods of `OAuthClient`. A subclass which
+already has a method of the same name, with another signature or
+visibility, must rename or adapt it.
+
+Without a configured `Neos.Flow.http.baseUri`, the host of the current
+request comes from the `Host` or `X-Forwarded-Host` header, which the
+browser chooses. The signer therefore takes the host patterns of the
+tenants your installation knows, and refuses to sign any other host:
+the authorization then fails with an `OAuthClientException`, and no
+state is issued. List only hosts which you have resolved to a known
+tenant, never a pattern which also matches hosts you don't serve.
+
+If your patterns contain a wildcard, pass a check as the fourth
+argument, which tells whether a host belongs to a known tenant. The
+signer asks it for every host which matches the patterns, in lower
+case and with the port if it is not the default one (such as
+`acme.cell-1.example.com:8443`), and refuses the host if the check
+returns `false` or throws an exception:
+
+```php
+StateSigner::fromBase64EncodedSecretKey('cell-1', $this->base64EncodedStateSigningKey, ['*.cell-1.example.com'], $this->tenantRepository->hasHostName(...));
+```
+
+Generate a key pair for each installation which sends returns through
+the relay, and give the secret key only to that installation. Pipe the
+output straight into your secret store, and never run the command in a
+CI job whose log keeps it:
+
+```bash
+$ ./flow oauth:generatestatesigningkey | your-secret-store-import
+```
+
+The relay knows only the public keys. It verifies the state, needs no
+database and no cache, and restricts each key to the host names of its
+installation. A host pattern `*.example.com` matches exactly one
+further label, and the domain of a wildcard needs at least two labels,
+so `*.com` is refused. Wildcards over public suffixes of two labels,
+such as `*.co.uk` or `*.github.io`, are not detected, so don't
+configure them. An IP address is only accepted if a pattern
+names it exactly. This also holds for the notations which browsers
+resolve to an IP address, such as `2130706433`, `0x7f000001` or
+`127.1`:
+
+```php
+$verifier = new StateVerifier([
+    StateVerificationKey::fromBase64EncodedPublicKey('cell-1', $base64EncodedPublicKey, ['*.cell-1.example.com', 'customer.example.org']),
+]);
+try {
+    $targetHost = $verifier->verify($state)->targetHost;
+} catch (InvalidSignedStateException) {
+    // answer with an error page, never forward the browser
+}
+```
+
+A pattern which names a single host of a customer's own domain, such
+as `customer.example.org`, must be removed as soon as the customer
+leaves or points the domain elsewhere. Otherwise a valid signature
+sends the code to a server which no longer belongs to the customer.
+An empty list of patterns is refused.
+
+A wildcard pattern needs the same care for its whole domain. If your
+ingress routes every subdomain to the application, a signer with
+`*.cell-1.example.com` signs any host which a request names in its
+`Host` header. Should a subdomain then point elsewhere in DNS, for
+example through a dangling CNAME or an expired record of a customer,
+a valid signature sends the code of a victim to whoever controls that
+target. Keep the wildcard domain clean, remove every record as soon as
+its tenant is gone, and give the signer a check for known tenants.
+
+`StateVerificationKey::allowingAnyHost()` trusts a key with any host
+name; use it only if the key's installation is the only one which may
+send returns through the relay. The verifier also refuses a state which
+is older than one hour, the lifetime of the state cache, with a clock
+skew of one minute. Pass `maximumAge` to the verifier if you changed
+that lifetime, the `defaultLifetime` of the cache
+`Flownative_OAuth2_Client_State` in `Caches.yaml`.
+
+The relay forwards to `https://` followed by the verified target host
+and the path of the finish authorization action, which it knows from
+its configuration. From the query of the return it copies only `code`,
+`state` and `error`, and drops everything else.
+The relay builds this URI itself and never takes the scheme, the host
+or the path from the request, or else anybody with a valid state could
+use it to redirect browsers to any path of a target host. Without a
+valid signature, the relay must not forward at all.
+Otherwise an attacker could start an authorization with your client id
+and the redirect URI of the relay, and let the code of a victim land on
+their own server.
+
 ## Encryption
 
 By default, access tokens are serialized and stored unencrypted in the

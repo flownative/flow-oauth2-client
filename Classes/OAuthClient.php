@@ -285,10 +285,25 @@ abstract class OAuthClient
         $this->logger?->info(sprintf('OAuth (%s): Starting authorization for service "%s" using client id "%s" and scope "%s".', static::getServiceType(), $this->getServiceName(), $clientId, $scope), LogEnvironment::fromMethodName(__METHOD__));
 
         // The token request must repeat the redirect URI exactly (RFC 6749, section 4.1.3), even if the browser returns through another host name
-        $redirectUri = $this->renderFinishAuthorizationUri();
+        $finishAuthorizationUri = $this->renderFinishAuthorizationUri();
+        $redirectUri = $this->getRedirectUri() ?? $finishAuthorizationUri;
         $clientSecret = $this->getClientSecret($clientId);
         $oAuthProvider = $this->createOAuthProvider($clientId, $clientSecret, $redirectUri);
-        $authorizationUri = new Uri($oAuthProvider->getAuthorizationUrl(array_merge($authorizationParameters, ['scope' => $scope])));
+        $providerOptions = array_merge($authorizationParameters, ['scope' => $scope]);
+        $stateSigner = $this->getStateSigner();
+        if ($stateSigner === null && (new Uri($redirectUri))->getAuthority() !== (new Uri($finishAuthorizationUri))->getAuthority()) {
+            $this->logger?->warning(sprintf('OAuth (%s): The redirect URI "%s" points to another host, but the state is not signed, so a relay can\'t forward the return. Override getStateSigner() as well.', static::getServiceType(), $redirectUri), LogEnvironment::fromMethodName(__METHOD__));
+        }
+        if ($stateSigner !== null) {
+            $targetHost = (new Uri($finishAuthorizationUri))->getAuthority();
+            try {
+                $providerOptions['state'] = (string)$stateSigner->sign($targetHost);
+            } catch (TargetHostNotAllowedException $exception) {
+                throw new OAuthClientException(sprintf('OAuth (%s): Could not sign a state for host "%s": %s', static::getServiceType(), $targetHost, $exception->getMessage()), 1793863404, $exception);
+            }
+        }
+        $authorizationUri = new Uri($oAuthProvider->getAuthorizationUrl($providerOptions));
+        $state = $oAuthProvider->getState();
 
         if ($clientId === $clientSecret) {
             $this->logger?->error(sprintf('OAuth (%s): Client ID and Client secret are the same! Please check your configuration.', static::getServiceType()));
@@ -297,8 +312,9 @@ abstract class OAuthClient
         try {
             // The state contains no client secret, because cache entries end up in backups and in shared cache backends
             $this->stateCache->set(
-                $oAuthProvider->getState(),
+                self::getStateCacheIdentifier($state),
                 [
+                    'state' => $state,
                     'serviceType' => static::getServiceType(),
                     'serviceName' => $this->getServiceName(),
                     'tokenEndpoint' => $this->getAccessTokenUri(),
@@ -503,6 +519,28 @@ abstract class OAuthClient
     }
 
     /**
+     * Returns the redirect URI to send instead of the finish authorization URI of the current host
+     *
+     * Override this method to let all returns arrive at one relay, for OAuth servers which accept only exact redirect URIs. The relay
+     * forwards the return to the host which started the authorization, see getStateSigner().
+     */
+    protected function getRedirectUri(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * Returns the signer which puts the host of the current request into the state, or null for a state which is only random
+     *
+     * Override this method together with getRedirectUri(), so that a relay with the matching StateVerifier knows where to forward a return.
+     * Without a configured base URI the host comes from the request, so give the signer only the hosts of known tenants.
+     */
+    protected function getStateSigner(): ?StateSigner
+    {
+        return null;
+    }
+
+    /**
      * Helper method to set metadata on an Authorization instance. Changes are
      * persisted immediately.
      */
@@ -599,11 +637,13 @@ abstract class OAuthClient
     private function takeState(string $stateIdentifier, array $cookies): array
     {
         // The cache rejects other identifiers with an exception, and the entries of authorization handles are kept in the same cache
-        if (preg_match('/^[a-zA-Z0-9_-]{1,250}\z/', $stateIdentifier) !== 1 || str_starts_with($stateIdentifier, self::AUTHORIZATION_HANDLE_CACHE_IDENTIFIER_PREFIX)) {
+        $cacheIdentifier = self::getStateCacheIdentifier($stateIdentifier);
+        if (preg_match('/^[a-zA-Z0-9_-]{1,250}\z/', $cacheIdentifier) !== 1 || str_starts_with($cacheIdentifier, self::AUTHORIZATION_HANDLE_CACHE_IDENTIFIER_PREFIX)) {
             throw new UnknownStateException(sprintf('OAuth (%s): The state of the returning authorization is malformed.', static::getServiceType()), 1789386787);
         }
-        $stateFromCache = $this->stateCache->get($stateIdentifier);
-        if (!is_array($stateFromCache)) {
+        $stateFromCache = $this->stateCache->get($cacheIdentifier);
+        // A signed state is found by its random part, so the rest must be exactly what this client signed
+        if (!is_array($stateFromCache) || !hash_equals($stateFromCache['state'] ?? $cacheIdentifier, $stateIdentifier)) {
             throw new UnknownStateException(sprintf('OAuth (%s): The state of the returning authorization is unknown, expired or was already used.', static::getServiceType()), 1558956494);
         }
 
@@ -620,10 +660,25 @@ abstract class OAuthClient
         }
 
         // Only the request which actually removes the state may use it, because two parallel requests can both read it
-        if (!$this->stateCache->remove($stateIdentifier)) {
+        if (!$this->stateCache->remove($cacheIdentifier)) {
             throw new UnknownStateException(sprintf('OAuth (%s): The state of the returning authorization is unknown, expired or was already used.', static::getServiceType()), 1558956494);
         }
         return $stateFromCache;
+    }
+
+    /**
+     * Returns the random part of a signed state, the state itself if it is not signed, or an empty string for a malformed signed state
+     */
+    private static function getStateCacheIdentifier(string $state): string
+    {
+        if (!SignedState::looksSigned($state)) {
+            return $state;
+        }
+        try {
+            return SignedState::fromString($state)->random;
+        } catch (InvalidSignedStateException) {
+            return '';
+        }
     }
 
     /**

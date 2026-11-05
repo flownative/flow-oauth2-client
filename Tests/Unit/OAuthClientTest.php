@@ -42,6 +42,7 @@ class OAuthClientTest extends TestCase
 {
     private const string CLIENT_SECRET = 'my-client-secret';
     private const string RETURN_URI = 'https://www.example.com/return?page=2';
+    private const string RELAY_URI = 'https://login.example.com/oauth/finish';
 
     private array $storedAuthorizations = []; # authorizations persisted through the entity manager stub, by authorization id
 
@@ -460,6 +461,207 @@ class OAuthClientTest extends TestCase
 
         parse_str((string)$this->transactions[0]['request']->getBody(), $tokenRequestParameters);
         self::assertSame(OAuthTestClient::TEST_BASE_URI . 'oauth/finish', $tokenRequestParameters['redirect_uri']);
+    }
+
+    #[Test]
+    public function startAuthorizationSendsConfiguredRedirectUriInsteadOfTheFinishAuthorizationUri(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $client->setRedirectUri(self::RELAY_URI);
+
+        $authorizationUri = $client->startAuthorization(OAuthTestClient::TEST_CLIENT_ID, new Uri(self::RETURN_URI), 'openid', $this->browserBinding);
+
+        parse_str($authorizationUri->getQuery(), $queryParameters);
+        self::assertSame(self::RELAY_URI, $queryParameters['redirect_uri']);
+    }
+
+    #[Test]
+    public function startAuthorizationWarnsAboutRedirectUriOfAnotherHostWithoutStateSigner(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $client->setRedirectUri(self::RELAY_URI);
+        $warnings = [];
+        $this->collectWarnings($client, $warnings);
+
+        $this->startAuthorization($client);
+
+        self::assertCount(1, $warnings);
+        self::assertStringContainsString('getStateSigner()', $warnings[0]);
+    }
+
+    #[Test]
+    public function startAuthorizationDoesNotWarnAboutRedirectUriWithStateSigner(): void
+    {
+        [$client] = $this->createClientWithStateSigner();
+        $warnings = [];
+        $this->collectWarnings($client, $warnings);
+
+        $this->startAuthorization($client);
+
+        self::assertSame([], $warnings);
+    }
+
+    #[Test]
+    public function startAuthorizationDoesNotWarnAboutRedirectUriOfTheSameHostWithoutStateSigner(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $client->setRedirectUri(OAuthTestClient::TEST_BASE_URI . 'oauth/another-finish');
+        $warnings = [];
+        $this->collectWarnings($client, $warnings);
+
+        $this->startAuthorization($client);
+
+        self::assertSame([], $warnings);
+    }
+
+    #[Test]
+    public function finishAuthorizationSendsConfiguredRedirectUriOfAuthorizationRequest(): void
+    {
+        $client = $this->createClientForAuthorization();
+        $client->setRedirectUri(self::RELAY_URI);
+        $state = $this->startAuthorization($client);
+        $this->oAuthServer->append(self::createTokenResponse('the-access-token'));
+
+        $client->finishAuthorization($state, 'the-code', $this->browserCookies());
+
+        parse_str((string)$this->transactions[0]['request']->getBody(), $tokenRequestParameters);
+        self::assertSame(self::RELAY_URI, $tokenRequestParameters['redirect_uri']);
+    }
+
+    #[Test]
+    public function startAuthorizationSendsOnlyRandomStateWithoutStateSigner(): void
+    {
+        $client = $this->createClientForAuthorization();
+
+        $state = $this->startAuthorization($client);
+
+        self::assertMatchesRegularExpression('/^[a-f0-9]{32}\z/', $state);
+    }
+
+    #[Test]
+    public function startAuthorizationSignsTheHostOfTheFinishAuthorizationUriIntoTheState(): void
+    {
+        [$client, $verifier] = $this->createClientWithStateSigner(['localbeach.net:8443']);
+        $client->setFinishAuthorizationUri('https://LocalBeach.net:8443/oauth/finish');
+
+        $state = $this->startAuthorization($client);
+
+        self::assertSame('localbeach.net:8443', $verifier->verify($state)->targetHost);
+    }
+
+    #[Test]
+    public function startAuthorizationRefusesToSignHostOutsideOfTheSignersPatterns(): void
+    {
+        [$client] = $this->createClientWithStateSigner(['*.localbeach.net', 'localbeach.net']);
+        $client->setFinishAuthorizationUri('https://evil.tld/oauth/finish');
+
+        try {
+            $this->startAuthorization($client);
+            self::fail('A state was signed for a host outside of the patterns.');
+        } catch (OAuthClientException $exception) {
+            self::assertSame(1793863404, $exception->getCode());
+        }
+    }
+
+    #[Test]
+    public function startAuthorizationPassesOtherSigningErrorsOn(): void
+    {
+        [$client] = $this->createClientWithStateSigner(['*.localbeach.net']);
+        $client->setFinishAuthorizationUri('https://user@acme.localbeach.net/oauth/finish');
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionCode(1793950379);
+        $this->startAuthorization($client);
+    }
+
+    #[Test]
+    public function finishAuthorizationAcceptsSignedState(): void
+    {
+        [$client] = $this->createClientWithStateSigner();
+        $state = $this->startAuthorization($client);
+        $this->oAuthServer->append(self::createTokenResponse('the-access-token'));
+
+        $returnUri = $client->finishAuthorization($state, 'the-code', $this->browserCookies());
+
+        self::assertSame('https://www.example.com/return', (string)$returnUri->withQuery(''));
+    }
+
+    #[Test]
+    public function finishAuthorizationAcceptsSignedStateOfTheLongestHostName(): void
+    {
+        $longestDomain = str_repeat('b', 63) . '.' . str_repeat('c', 63) . '.' . str_repeat('d', 57) . ':65535';
+        [$client, $verifier] = $this->createClientWithStateSigner(['*.' . $longestDomain]);
+        $longestHostName = str_repeat('a', 63) . '.' . $longestDomain;
+        $client->setFinishAuthorizationUri('https://' . $longestHostName . '/oauth/finish');
+        $state = $this->startAuthorization($client);
+        $this->oAuthServer->append(self::createTokenResponse('the-access-token'));
+
+        $client->finishAuthorization($state, 'the-code', $this->browserCookies());
+
+        self::assertGreaterThan(250, strlen($state));
+        self::assertSame($longestHostName, $verifier->verify($state)->targetHost);
+    }
+
+    #[Test]
+    public function finishAuthorizationRejectsSignedStateWithAnotherTargetHostAndKeepsTheState(): void
+    {
+        [$client] = $this->createClientWithStateSigner();
+        $state = $this->startAuthorization($client);
+        $signedState = SignedState::fromString($state);
+        $otherState = (string)StateSigner::fromBase64EncodedSecretKey('cell-1', StateSigner::generateKeyPair()['secretKey'], ['attacker.example.net'])->sign('attacker.example.net');
+        $tamperedState = (string)SignedState::create('cell-1', 'attacker.example.net', $signedState->issuedAt, $signedState->random, SignedState::fromString($otherState)->signature);
+
+        try {
+            $client->finishAuthorization($tamperedState, 'the-code', $this->browserCookies());
+            self::fail('The tampered state was accepted.');
+        } catch (UnknownStateException $exception) {
+            self::assertSame(1558956494, $exception->getCode());
+        }
+
+        $this->oAuthServer->append(self::createTokenResponse('the-access-token'));
+        $client->finishAuthorization($state, 'the-code', $this->browserCookies());
+        self::assertCount(1, $this->transactions);
+    }
+
+    #[Test]
+    public function finishAuthorizationRejectsTheRandomPartOfSignedState(): void
+    {
+        [$client] = $this->createClientWithStateSigner();
+        $state = $this->startAuthorization($client);
+
+        $this->expectException(UnknownStateException::class);
+        $this->expectExceptionCode(1558956494);
+        $client->finishAuthorization(SignedState::fromString($state)->random, 'the-code', $this->browserCookies());
+    }
+
+    #[Test]
+    public function finishAuthorizationRejectsMalformedSignedStateWithoutAskingTheCache(): void
+    {
+        $client = $this->createClientForAuthorization();
+
+        $this->expectException(UnknownStateException::class);
+        $this->expectExceptionCode(1789386787);
+        $client->finishAuthorization('v1.cell-1.<script>', 'the-code', $this->browserCookies());
+    }
+
+    #[Test]
+    public function finishAuthorizationRejectsSignedStateLongerThanTheLimitWithoutAskingTheCache(): void
+    {
+        $client = $this->createClientForAuthorization();
+
+        $this->expectException(UnknownStateException::class);
+        $this->expectExceptionCode(1789386787);
+        $client->finishAuthorization('v1.cell-1.' . str_repeat('a', SignedState::MAXIMUM_LENGTH) . '.0123456789abcdef0123456789abcdef.' . str_repeat('A', 86), 'the-code', $this->browserCookies());
+    }
+
+    #[Test]
+    public function finishAuthorizationRejectsUnsignedStateLongerThanACacheIdentifierWithoutAskingTheCache(): void
+    {
+        $client = $this->createClientForAuthorization();
+
+        $this->expectException(UnknownStateException::class);
+        $this->expectExceptionCode(1789386787);
+        $client->finishAuthorization(str_repeat('a', 251), 'the-code', $this->browserCookies());
     }
 
     #[Test]
@@ -1003,6 +1205,31 @@ class OAuthClientTest extends TestCase
         (new ReflectionProperty($client, 'stateCache'))->setValue($client, $this->stateCache);
         (new ReflectionProperty($client, 'logger'))->setValue($client, $this->createStub(LoggerInterface::class));
         return $client;
+    }
+
+    /**
+     * @param list<string> $allowedHostPatterns
+     * @return array{OAuthTestClient, StateVerifier}
+     */
+    private function createClientWithStateSigner(array $allowedHostPatterns = ['localbeach.net', 'localbeach.net:8443']): array
+    {
+        $keyPair = StateSigner::generateKeyPair();
+        $client = $this->createClientForAuthorization();
+        $client->setRedirectUri(self::RELAY_URI);
+        $client->setStateSigner(StateSigner::fromBase64EncodedSecretKey('cell-1', $keyPair['secretKey'], $allowedHostPatterns));
+        return [$client, new StateVerifier([StateVerificationKey::fromBase64EncodedPublicKey('cell-1', $keyPair['publicKey'], $allowedHostPatterns)])];
+    }
+
+    /**
+     * @param list<string> $warnings Receives the warnings the client logs from now on
+     */
+    private function collectWarnings(OAuthTestClient $client, array &$warnings): void
+    {
+        $logger = $this->createStub(LoggerInterface::class);
+        $logger->method('warning')->willReturnCallback(function (string $message) use (&$warnings): void {
+            $warnings[] = $message;
+        });
+        (new ReflectionProperty($client, 'logger'))->setValue($client, $logger);
     }
 
     private function createInMemoryEntityManager(): EntityManagerInterface
