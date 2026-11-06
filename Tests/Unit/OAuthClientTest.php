@@ -564,14 +564,18 @@ class OAuthClientTest extends TestCase
     }
 
     #[Test]
-    public function startAuthorizationPassesOtherSigningErrorsOn(): void
+    public function startAuthorizationRefusesMalformedTargetHost(): void
     {
         [$client] = $this->createClientWithStateSigner(['*.localbeach.net']);
         $client->setFinishAuthorizationUri('https://user@acme.localbeach.net/oauth/finish');
 
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionCode(1793950379);
-        $this->startAuthorization($client);
+        try {
+            $this->startAuthorization($client);
+            self::fail('A state was signed for a malformed host.');
+        } catch (OAuthClientException $exception) {
+            self::assertSame(1793863404, $exception->getCode());
+            self::assertSame(1793950379, $exception->getPrevious()?->getCode());
+        }
     }
 
     #[Test]
