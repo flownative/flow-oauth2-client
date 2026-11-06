@@ -7,6 +7,7 @@ use Doctrine\ORM\EntityManagerInterface as DoctrineEntityManagerInterface;
 use Flownative\OAuth2\Client\Authorization;
 use Flownative\OAuth2\Client\EncryptionService;
 use Flownative\OAuth2\Client\GarbageCollector;
+use Flownative\OAuth2\Client\StateSigner;
 use Neos\Flow\Annotations as Flow;
 use Neos\Flow\Cli\CommandController;
 use Neos\Flow\Persistence\Doctrine\Query;
@@ -143,5 +144,19 @@ final class OAuthCommandController extends CommandController
 
         $encryptionService = new EncryptionService();
         $this->outputLine(base64_encode($encryptionService->generateEncryptionKey()));
+    }
+
+    /**
+     * Generate a key pair for signing states
+     *
+     * This command generates an Ed25519 key pair for clients which send their
+     * returns through a relay. The client signs the state with the secret key,
+     * the relay verifies it with the public key. Both are base64-encoded.
+     */
+    public function generateStateSigningKeyCommand(): void
+    {
+        $keyPair = StateSigner::generateKeyPair();
+        $this->outputLine('Secret key (for the client): %s', [$keyPair['secretKey']]);
+        $this->outputLine('Public key (for the relay):  %s', [$keyPair['publicKey']]);
     }
 }

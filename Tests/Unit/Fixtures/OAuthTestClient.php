@@ -14,6 +14,7 @@ namespace Flownative\OAuth2\Client\Tests\Unit\Fixtures;
  */
 
 use Flownative\OAuth2\Client\OAuthClient;
+use Flownative\OAuth2\Client\StateSigner;
 use GuzzleHttp\ClientInterface;
 
 class OAuthTestClient extends OAuthClient
@@ -27,6 +28,10 @@ class OAuthTestClient extends OAuthClient
 
     private string $finishAuthorizationUri = self::TEST_BASE_URI . 'oauth/finish';
 
+    private ?string $redirectUri = null;
+
+    private ?StateSigner $stateSigner = null;
+
     public function setHttpClient(ClientInterface $httpClient): void
     {
         $this->httpClient = $httpClient;
@@ -35,6 +40,16 @@ class OAuthTestClient extends OAuthClient
     public function setFinishAuthorizationUri(string $finishAuthorizationUri): void
     {
         $this->finishAuthorizationUri = $finishAuthorizationUri;
+    }
+
+    public function setRedirectUri(?string $redirectUri): void
+    {
+        $this->redirectUri = $redirectUri;
+    }
+
+    public function setStateSigner(?StateSigner $stateSigner): void
+    {
+        $this->stateSigner = $stateSigner;
     }
 
     public static function getServiceType(): string
@@ -60,6 +75,16 @@ class OAuthTestClient extends OAuthClient
     public function renderFinishAuthorizationUri(): string
     {
         return $this->finishAuthorizationUri;
+    }
+
+    protected function getRedirectUri(): ?string
+    {
+        return $this->redirectUri;
+    }
+
+    protected function getStateSigner(): ?StateSigner
+    {
+        return $this->stateSigner;
     }
 
     protected function createHttpClient(): ClientInterface
