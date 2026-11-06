@@ -76,7 +76,7 @@ final readonly class StateSigner
     {
         $targetHost = strtolower($targetHost);
         if (!SignedState::isValidTargetHost($targetHost)) {
-            throw new InvalidArgumentException(sprintf('Could not sign a state for the malformed target host "%s".', $targetHost), 1793950379);
+            throw new TargetHostNotAllowedException(sprintf('Could not sign a state for the malformed target host "%s".', $targetHost), 1793950379);
         }
         if (!$this->allowedHostPatterns->matches($targetHost)) {
             throw new TargetHostNotAllowedException(sprintf('Key id "%s" may not sign states for host "%s".', $this->keyId, $targetHost), 1793863400);

@@ -430,12 +430,23 @@ class StateVerifierTest extends TestCase
         StateSigner::fromBase64EncodedSecretKey('cell.1', $this->keyPair['secretKey'], ['acme.com']);
     }
 
-    #[Test]
-    public function signerRejectsMalformedTargetHost(): void
+    public static function malformedTargetHosts(): array
     {
-        $this->expectException(InvalidArgumentException::class);
+        return [
+            'path' => ['acme/evil.example.com'],
+            'trailing dot' => ['acme.example.com.'],
+            'underscore' => ['foo_bar.example.com'],
+            'leading hyphen' => ['-x.example.com'],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('malformedTargetHosts')]
+    public function signerRefusesMalformedTargetHost(string $targetHost): void
+    {
+        $this->expectException(TargetHostNotAllowedException::class);
         $this->expectExceptionCode(1793950379);
-        $this->createSigner('cell-1', ['*.example.com'])->sign('acme/evil.example.com');
+        $this->createSigner('cell-1', ['*.example.com'])->sign($targetHost);
     }
 
     #[Test]
