@@ -128,6 +128,27 @@ The error codes are the ones defined by
 [OpenID Connect](https://openid.net/specs/openid-connect-core-1_0.html#AuthError),
 for example `access_denied`. Any other code arrives as `server_error`.
 
+A return which the client can't accept, because its state is malformed,
+unknown, expired, already used, belongs to another service, was issued
+for another token endpoint or was started in another browser, is
+answered with status 400. The reason is logged with the host the return
+arrived at and the code of the exception, but without the state, the
+code or the cookies:
+
+```
+OAuth (<service type>): <reason> The return for service "<service name>" at host "<host>[:<port>]" was refused. (<exception code>)
+```
+
+A malformed state is logged at level debug, because it mostly comes
+from bots, every other reason as a notice. The service name and the
+host come from the request: in the service name, any character other
+than letters, digits, dots, underscores, colons and hyphens becomes `?`
+and it is cut after 100 characters, in the reason any character outside
+printable ASCII becomes `?`, a host with other characters than letters, digits, dots,
+hyphens, brackets and colons, or longer than 255 characters, is logged
+as `(invalid)`, and the reason is shortened so that the line, with the
+host and the code at its end, stays within 500 characters.
+
 ## Returns through a relay
 
 Some OAuth servers accept only redirect URIs which are registered
