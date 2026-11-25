@@ -13,9 +13,15 @@ use Neos\Flow\Mvc\Exception\StopActionException;
 use Neos\Flow\Mvc\Exception\UnsupportedRequestTypeException;
 use Neos\Flow\ObjectManagement\ObjectManagerInterface;
 use Neos\Flow\Reflection\ReflectionService;
+use Psr\Log\LogLevel;
 
 final class OAuthController extends ActionController
 {
+    private const int MALFORMED_STATE_EXCEPTION_CODE = 1789386787;
+    private const int MAXIMUM_LOG_LINE_LENGTH = 500;
+    private const int MAXIMUM_LOGGED_SERVICE_NAME_LENGTH = 100;
+    private const int MAXIMUM_HOST_LENGTH = 255;
+
     private array $serviceTypes;
 
     /**
@@ -32,7 +38,8 @@ final class OAuthController extends ActionController
      * The OAuth server redirects the browser to this action, either with a code or with an error. In both cases, the
      * action redirects to the return URI which was specified while starting the authorization. A malformed, unknown
      * or already used state results in status 400, because it usually comes from a reloaded or bookmarked page. The
-     * same applies to a state which was started in another browser.
+     * same applies to a state which was started in another browser. The reason for such a refusal is logged as a
+     * notice, for a malformed state only for debugging.
      *
      * @param string $serviceType The OAuth service type, ie. the type identifying the package / class implementing OAuth
      * @param string $serviceName The OAuth service name, ie. the identifier of the concrete configuration of the given OAuth service implementation
@@ -59,11 +66,14 @@ final class OAuthController extends ActionController
         $cookies = $this->request->getHttpRequest()->getCookieParams();
         try {
             $returnToUri = $error !== '' ? $client->finishAuthorizationWithError($state, $error, $cookies) : $client->finishAuthorization($state, $code, $cookies);
-        } catch (UnknownStateException) {
+        } catch (UnknownStateException $exception) {
+            // A malformed state mostly comes from bots probing the endpoint, not from a person signing in
+            $logLevel = $exception->getCode() === self::MALFORMED_STATE_EXCEPTION_CODE ? LogLevel::DEBUG : LogLevel::NOTICE;
+            $this->logger?->log($logLevel, self::composeLogLine($exception->getMessage(), $serviceName, sprintf(' The return for service "%s" at host "%s" was refused. (%d)', self::describeServiceName($serviceName), $this->describeHost(), $exception->getCode())), LogEnvironment::fromMethodName(__METHOD__));
             $this->throwStatus(400, null, 'The authorization is unknown, has expired or was started in another browser. Please start again.');
         } catch (OAuthClientException $exception) {
             // Flow's exception handling would store the URL of this request, which contains the code and the state
-            $this->logger?->error(sprintf('OAuth (%s): Finishing the authorization for service "%s" failed: %s', $serviceType, $serviceName, $exception->getMessage()), LogEnvironment::fromMethodName(__METHOD__));
+            $this->logger?->error(self::composeLogLine($exception->getMessage(), $serviceName, sprintf(' Finishing the authorization for service "%s" failed. (%d)', self::describeServiceName($serviceName), $exception->getCode())), LogEnvironment::fromMethodName(__METHOD__));
             $this->throwStatus(502, null, 'The authorization server could not complete the authorization. Please start again later.');
         }
         $this->redirectToUri($returnToUri);
@@ -89,5 +99,37 @@ final class OAuthController extends ActionController
             $serviceTypes[$serviceType] = $serviceTypeClassName;
         }
         return $serviceTypes;
+    }
+
+    /**
+     * The host and the port of this request, without the path and the query, which contain the state and the code
+     *
+     * The browser chooses the host through the Host or X-Forwarded-Host header, so anything unusual is left out.
+     */
+    private function describeHost(): string
+    {
+        $uri = $this->request->getHttpRequest()->getUri();
+        $host = strtolower($uri->getHost()) . ($uri->getPort() !== null ? ':' . $uri->getPort() : '');
+        return preg_match('/^[a-z0-9.\-\[\]:]{1,' . self::MAXIMUM_HOST_LENGTH . '}\z/', $host) === 1 ? $host : '(invalid)';
+    }
+
+    /**
+     * The service name comes from the route, so quotes or padding in it could forge the host and the code of a line
+     */
+    private static function describeServiceName(string $serviceName): string
+    {
+        return substr(preg_replace('/[^A-Za-z0-9._:-]/', '?', $serviceName), 0, self::MAXIMUM_LOGGED_SERVICE_NAME_LENGTH);
+    }
+
+    /**
+     * One line of printable characters, so that values from the request can't forge other lines
+     *
+     * The reason is shortened first, so that the context with the host and the code always stays complete at the end.
+     */
+    private static function composeLogLine(string $reason, string $serviceName, string $context): string
+    {
+        $reason = preg_replace('/[^\x20-\x7E]/', '?', str_replace($serviceName, self::describeServiceName($serviceName), $reason));
+        $context = preg_replace('/[^\x20-\x7E]/', '?', $context);
+        return substr($reason, 0, max(0, self::MAXIMUM_LOG_LINE_LENGTH - strlen($context))) . $context;
     }
 }
