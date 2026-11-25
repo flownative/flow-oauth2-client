@@ -213,13 +213,15 @@ class OAuthControllerTest extends TestCase
         (new ReflectionProperty($controller, 'serviceTypes'))->setValue($controller, [OAuthTestClient::TEST_SERVICE_TYPE => $clientClassName]);
         (new ReflectionProperty($controller, 'logger'))->setValue($controller, $logger);
         (new ReflectionProperty($controller, 'request'))->setValue($controller, ActionRequest::fromHttpRequest($httpRequest));
-        (new ReflectionProperty($controller, 'response'))->setValue($controller, new ActionResponse());
+        $actionResponse = new ActionResponse();
+        (new ReflectionProperty($controller, 'response'))->setValue($controller, $actionResponse);
 
         try {
             $controller->finishAuthorizationAction(OAuthTestClient::TEST_SERVICE_TYPE, $serviceName, $state, self::CODE);
             self::fail('The return was accepted');
         } catch (StopActionException $exception) {
-            self::assertSame(400, $exception->response->getStatusCode());
+            // Flow 9 carries the response in the exception, Flow 8 sets the status on the response of the controller
+            self::assertSame(400, ($exception->response ?? $actionResponse)->getStatusCode());
         }
     }
 
